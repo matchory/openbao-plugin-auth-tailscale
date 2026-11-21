@@ -8,6 +8,7 @@ tool (
 )
 
 require (
+	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-sockaddr v1.0.7
 	github.com/openbao/openbao/sdk/v2 v2.7.1
 	tailscale.com v1.104.7
@@ -36,7 +37,6 @@ require (
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-metrics v0.6.1 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect

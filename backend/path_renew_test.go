@@ -2,6 +2,8 @@ package backend
 
 import (
 	"errors"
+	"net/netip"
+	"slices"
 	"testing"
 	"time"
 
@@ -203,5 +205,71 @@ func TestRenewCapsTTLAtKeyExpiry(t *testing.T) {
 
 	if resp.Auth.TTL != 5*time.Minute {
 		t.Errorf("TTL = %v, want 5m", resp.Auth.TTL)
+	}
+}
+
+// Guards: G5
+func TestRenewRefusedWhenPoliciesChanged(t *testing.T) {
+	t.Parallel()
+
+	b, s, _ := loginBackend(t)
+	auth := mustLogin(t, b, s, "100.64.0.5")
+
+	writeRole(t, b, s, "api", map[string]any{"token_policies": []string{"api", "more"}})
+
+	resp, err := renew(t, b, s, auth, "100.64.0.5")
+	assertRenewalRefused(t, resp, err)
+}
+
+// Guards: G5
+func TestRenewWithUnchangedPolicies(t *testing.T) {
+	t.Parallel()
+
+	b, s, _ := loginBackend(t)
+	auth := mustLogin(t, b, s, "100.64.0.5")
+
+	if resp, err := renew(t, b, s, auth, "100.64.0.5"); err != nil || resp == nil {
+		t.Errorf("renewal = %v, %v", resp, err)
+	}
+}
+
+// OpenBao counts a token's maximum lifetime from when it was issued, so the
+// cap for an expiring node key is counted from then too.
+func TestRenewCapsMaxTTLFromIssueTime(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+	auth := mustLogin(t, b, s, "100.64.0.5")
+	auth.IssueTime = testNow.Add(-20 * time.Minute)
+
+	who.node.KeyExpiry = testNow.Add(5 * time.Minute)
+
+	resp, err := renew(t, b, s, auth, "100.64.0.5")
+	if err != nil || resp == nil {
+		t.Fatalf("renewal = %v, %v", resp, err)
+	}
+
+	if resp.Auth.TTL != 5*time.Minute || resp.Auth.MaxTTL != 25*time.Minute {
+		t.Errorf("TTL, MaxTTL = %v, %v; want 5m and 25m", resp.Auth.TTL, resp.Auth.MaxTTL)
+	}
+}
+
+// Guards: G2
+func TestRenewKeepsTheTokensAddresses(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+	auth := mustLogin(t, b, s, "100.64.0.5")
+
+	who.node.Addresses = append(who.node.Addresses, netip.MustParseAddr("100.64.0.77"))
+	who.node.AllowedIPs = append(who.node.AllowedIPs, netip.MustParsePrefix("100.64.0.77/32"))
+
+	resp, err := renew(t, b, s, auth, "100.64.0.5")
+	if err != nil || resp == nil {
+		t.Fatalf("renewal = %v, %v", resp, err)
+	}
+
+	if got := boundCIDRs(resp.Auth); !slices.Equal(got, bothAddresses) {
+		t.Errorf("BoundCIDRs after renewal = %v, want the login's %v", got, bothAddresses)
 	}
 }

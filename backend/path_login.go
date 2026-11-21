@@ -7,9 +7,11 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-sockaddr"
 	"github.com/openbao/openbao/sdk/v2/framework"
+	"github.com/openbao/openbao/sdk/v2/helper/policyutil"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
@@ -51,6 +53,9 @@ type attestation struct {
 	node   *identity.Node
 	role   *roleEntry
 	remote netip.Addr
+	// at is the one moment every time-dependent check and lifetime of
+	// this request is measured from.
+	at time.Time
 }
 
 // attest decides whether the node a request comes from may use the named
@@ -80,12 +85,13 @@ func (b *backend) attest(
 
 	// tailscaled is asked before the role is looked up: a refusal then
 	// takes as long for a role that exists as for one that does not.
-	node, err := b.newWhoIser(cfg.Socket).WhoIs(whoIsCtx, remote)
+	node, err := b.whoIser(cfg.Socket).WhoIs(whoIsCtx, remote)
 	if err != nil {
 		return nil, fmt.Errorf("ask tailscaled: %w", err)
 	}
 
-	if err := identity.CheckNode(node, remote, b.now()); err != nil {
+	now := b.now()
+	if err := identity.CheckNode(node, remote, now); err != nil {
 		return nil, fmt.Errorf("node at %s: %w", remote, err)
 	}
 
@@ -102,7 +108,7 @@ func (b *backend) attest(
 		return nil, fmt.Errorf("node %s, role %q: %w", node.StableID, roleName, err)
 	}
 
-	return &attestation{node: node, role: role, remote: remote}, nil
+	return &attestation{node: node, role: role, remote: remote, at: now}, nil
 }
 
 func (b *backend) login(ctx context.Context, req *logical.Request, d *framework.FieldData) (
@@ -140,14 +146,7 @@ func (b *backend) login(ctx context.Context, req *logical.Request, d *framework.
 		return nil, b.refuse(req, roleName, err)
 	}
 
-	b.bindToNode(auth, att)
-
-	return &logical.Response{Auth: auth}, nil
-}
-
-// bindToNode sets what a token takes from the node and not from the role:
-// the addresses it works from, and lifetimes that end with the node key.
-func (b *backend) bindToNode(auth *logical.Auth, att *attestation) {
+	// The addresses come from the node, never from the role.
 	cidrs := identity.BoundCIDRs(att.node)
 
 	auth.BoundCIDRs = make([]*sockaddr.SockAddrMarshaler, 0, len(cidrs))
@@ -157,6 +156,15 @@ func (b *backend) bindToNode(auth *logical.Auth, att *attestation) {
 		})
 	}
 
+	b.capLifetimes(auth, att, att.at)
+
+	return &logical.Response{Auth: auth}, nil
+}
+
+// capLifetimes shortens a token's lifetimes so it ends no later than the
+// node key. OpenBao counts the maximum from when the token was issued and the
+// others from now.
+func (b *backend) capLifetimes(auth *logical.Auth, att *attestation, issued time.Time) {
 	if att.node.KeyExpiry.IsZero() {
 		return
 	}
@@ -171,12 +179,11 @@ func (b *backend) bindToNode(auth *logical.Auth, att *attestation) {
 		auth.MaxTTL = b.System().MaxLeaseTTL()
 	}
 
-	now := b.now()
-	auth.TTL = identity.CapTTL(auth.TTL, att.node, now)
-	auth.MaxTTL = identity.CapTTL(auth.MaxTTL, att.node, now)
+	auth.TTL = identity.CapTTL(auth.TTL, att.node, att.at)
+	auth.MaxTTL = identity.CapTTL(auth.MaxTTL, att.node, issued)
 
 	if auth.Period != 0 {
-		auth.Period = identity.CapTTL(auth.Period, att.node, now)
+		auth.Period = identity.CapTTL(auth.Period, att.node, att.at)
 	}
 }
 
@@ -188,15 +195,41 @@ func (b *backend) refuse(req *logical.Request, roleName string, reason error) er
 		remote = req.Connection.RemoteAddr
 	}
 
-	b.Logger().Debug("refused", "role", roleName, "remote_addr", remote, "reason", reason)
+	// Who was refused for what is for debugging. That tailscaled or storage
+	// is failing is something an operator must see without asking.
+	log := b.Logger().Warn
+	if isVerdict(reason) {
+		log = b.Logger().Debug
+	}
+
+	log("refused", "role", roleName, "remote_addr", remote, "reason", reason)
 
 	return logical.ErrPermissionDenied
 }
 
-var errNodeChanged = errors.New("address now belongs to another node")
+// isVerdict reports whether a refusal is a decision about the caller, as
+// opposed to a failure to reach a decision.
+func isVerdict(reason error) bool {
+	for _, verdict := range []error{
+		identity.ErrNotTailnet, identity.ErrUntagged, identity.ErrShared, identity.ErrExpired,
+		identity.ErrAddressMismatch, identity.ErrRoutes, identity.ErrTagMismatch,
+		errNoConnection, errNoRole, errNodeChanged, errRoleChanged,
+	} {
+		if errors.Is(reason, verdict) {
+			return true
+		}
+	}
+
+	return false
+}
+
+var (
+	errNodeChanged = errors.New("address now belongs to another node")
+	errRoleChanged = errors.New("role no longer grants the token's policies")
+)
 
 // renew extends a token only if a login from the same address would succeed
-// now and would name the node that logged in. A tailnet address can pass to
+// now, would name the node that logged in, and would grant the same policies. A tailnet address can pass to
 // another node, and a role or a node's tags can change, while a token lives.
 func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.FieldData) (
 	*logical.Response, error,
@@ -213,12 +246,23 @@ func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.
 		return nil, b.refuse(req, roleName, errNodeChanged)
 	}
 
+	// A token keeps the policies it was issued with, so one whose role
+	// has since been given other policies must log in again.
+	if !policyutil.EquivalentPolicies(att.role.TokenPolicies, req.Auth.TokenPolicies) {
+		return nil, b.refuse(req, roleName, errRoleChanged)
+	}
+
 	auth := req.Auth
 	auth.TTL = att.role.TokenTTL
 	auth.MaxTTL = att.role.TokenMaxTTL
 	auth.Period = att.role.TokenPeriod
 
-	b.bindToNode(auth, att)
+	issued := auth.IssueTime
+	if issued.IsZero() {
+		issued = att.at
+	}
+
+	b.capLifetimes(auth, att, issued)
 
 	return &logical.Response{Auth: auth}, nil
 }

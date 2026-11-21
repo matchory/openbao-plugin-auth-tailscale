@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,6 +98,11 @@ func mustLogin(t *testing.T, b *backend, s logical.Storage, remote string) *logi
 	if err != nil || resp == nil || resp.Auth == nil {
 		t.Fatalf("login from %s: response %v, error %v", remote, resp, err)
 	}
+
+	// OpenBao core stores a token with its policies and issue time, and
+	// hands both back with a renewal.
+	resp.Auth.TokenPolicies = resp.Auth.Policies
+	resp.Auth.IssueTime = testNow
 
 	return resp.Auth
 }
@@ -466,5 +472,69 @@ func TestLoginBoundCIDRsComeFromNodeOnly(t *testing.T) {
 	auth := mustLogin(t, b, s, "100.64.0.5")
 	if got := boundCIDRs(auth); !slices.Equal(got, bothAddresses) {
 		t.Errorf("BoundCIDRs = %v, want %v", got, bothAddresses)
+	}
+}
+
+// A client keeps a connection to tailscaled open. One per login would leave
+// one open per login, in the plugin and in tailscaled.
+func TestLoginReusesTheTailscaledClient(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+
+	var sockets []string
+
+	b.newWhoIser = func(socket string) identity.WhoIser {
+		sockets = append(sockets, socket)
+
+		return who
+	}
+
+	for range 3 {
+		mustLogin(t, b, s, "100.64.0.5")
+	}
+
+	if !slices.Equal(sockets, []string{""}) {
+		t.Errorf("clients made for three logins: %q, want one", sockets)
+	}
+
+	request(t, b, s, logical.UpdateOperation, "config", map[string]any{"socket": "/run/x.sock"})
+	mustLogin(t, b, s, "100.64.0.5")
+	mustLogin(t, b, s, "100.64.0.5")
+
+	if !slices.Equal(sockets, []string{"", "/run/x.sock"}) {
+		t.Errorf("clients made after the socket changed: %q, want one more", sockets)
+	}
+}
+
+// An operator must see that tailscaled or storage is failing without turning
+// debug logging on; who was refused for what is debug only.
+func TestRefusalLogLevels(t *testing.T) {
+	t.Parallel()
+
+	who := &fakeWhoIser{node: validNode()}
+	b, s, log := testBackendWithLog(t, who)
+	writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-worker"}})
+
+	if _, err := login(b, s, "100.64.0.5", "api"); err == nil {
+		t.Fatal("login without the bound tag succeeded")
+	}
+
+	if !strings.Contains(log.String(), "[DEBUG] refused") ||
+		strings.Contains(log.String(), "[WARN]") {
+		t.Errorf("a missing tag is not logged at debug only:\n%s", log)
+	}
+
+	log.Reset()
+
+	who.node, who.err = nil, errors.New("connection refused")
+
+	if _, err := login(b, s, "100.64.0.5", "api"); err == nil {
+		t.Fatal("login without tailscaled succeeded")
+	}
+
+	if !strings.Contains(log.String(), "[WARN]") ||
+		!strings.Contains(log.String(), "connection refused") {
+		t.Errorf("a failing tailscaled is not logged as a warning:\n%s", log)
 	}
 }

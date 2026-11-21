@@ -1,10 +1,12 @@
 package backend
 
 import (
+	"bytes"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
 	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
@@ -17,8 +19,22 @@ var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 func testBackend(t *testing.T, w identity.WhoIser) (*backend, logical.Storage) {
 	t.Helper()
 
+	b, s, _ := testBackendWithLog(t, w)
+
+	return b, s
+}
+
+// testBackendWithLog is testBackend, and also returns what the backend logs.
+func testBackendWithLog(
+	t *testing.T,
+	w identity.WhoIser,
+) (*backend, logical.Storage, *bytes.Buffer) {
+	t.Helper()
+
+	log := &bytes.Buffer{}
 	conf := logical.TestBackendConfig()
 	conf.StorageView = &logical.InmemStorage{}
+	conf.Logger = hclog.New(&hclog.LoggerOptions{Output: log, Level: hclog.Debug})
 
 	b := newBackend()
 	b.newWhoIser = func(string) identity.WhoIser { return w }
@@ -28,7 +44,7 @@ func testBackend(t *testing.T, w identity.WhoIser) (*backend, logical.Storage) {
 		t.Fatalf("set up the backend: %v", err)
 	}
 
-	return b, conf.StorageView
+	return b, conf.StorageView, log
 }
 
 // request sends one request and fails the test on a Go error. An error
@@ -78,5 +94,16 @@ func TestLoginIsUnauthenticated(t *testing.T) {
 			"unauthenticated paths = %v, want login among them",
 			b.SpecialPaths().Unauthenticated,
 		)
+	}
+}
+
+// Not parallel: it changes the package's version for its duration.
+func TestRunningVersion(t *testing.T) {
+	version = "v1.2.3"
+
+	t.Cleanup(func() { version = "" })
+
+	if got := newBackend().RunningVersion; got != "v1.2.3" {
+		t.Errorf("RunningVersion = %q, want the build's version v1.2.3", got)
 	}
 }

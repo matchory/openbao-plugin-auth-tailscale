@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,5 +229,48 @@ func TestWhoIsNoSocket(t *testing.T) {
 
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("WhoIs took %v after a 200ms deadline", elapsed)
+	}
+}
+
+// tailscaled keeps a connection open for as long as a client does, so a
+// client must reuse its connection.
+func TestWhoIsReusesItsConnection(t *testing.T) {
+	t.Parallel()
+
+	var connections atomic.Int32
+
+	socket := filepath.Join(shortTempDir(t), "ts.sock")
+
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/localapi/v0/whois", respond(whoIs(taggedNode())))
+
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: time.Second,
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				connections.Add(1)
+			}
+		},
+	}
+
+	go func() { _ = server.Serve(listener) }()
+
+	t.Cleanup(func() { _ = server.Close() })
+
+	client := tailscaled.New(socket)
+	for range 20 {
+		if _, err := client.WhoIs(t.Context(), addr); err != nil {
+			t.Fatalf("WhoIs: %v", err)
+		}
+	}
+
+	if n := connections.Load(); n != 1 {
+		t.Errorf("20 questions opened %d connections, want 1", n)
 	}
 }

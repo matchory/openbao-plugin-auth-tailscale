@@ -6,6 +6,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -23,12 +24,22 @@ carries every tag the role binds. The token works only from that node's
 addresses.
 `
 
+// version is the release this binary was built as, such as "v0.1.0". The
+// release build sets it; it is empty in any other build.
+var version string
+
 type backend struct {
 	*framework.Backend
 
 	// Both are replaced in tests.
 	newWhoIser func(socket string) identity.WhoIser
 	now        func() time.Time
+
+	// The client for tailscaled is kept: each one holds a connection open,
+	// in this process and in tailscaled, for as long as it exists.
+	clientMu     sync.Mutex
+	client       identity.WhoIser
+	clientSocket string
 }
 
 // Factory returns the backend, set up with conf. OpenBao calls it once per
@@ -49,9 +60,10 @@ func newBackend() *backend {
 	}
 
 	b.Backend = &framework.Backend{
-		Help:        backendHelp,
-		BackendType: logical.TypeCredential,
-		AuthRenew:   b.renew,
+		Help:           backendHelp,
+		BackendType:    logical.TypeCredential,
+		RunningVersion: version,
+		AuthRenew:      b.renew,
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{"login"},
 		},
@@ -63,4 +75,18 @@ func newBackend() *backend {
 	}
 
 	return b
+}
+
+// whoIser returns the client for the tailscaled behind socket, making a new
+// one only when the configured socket has changed.
+func (b *backend) whoIser(socket string) identity.WhoIser {
+	b.clientMu.Lock()
+	defer b.clientMu.Unlock()
+
+	if b.client == nil || b.clientSocket != socket {
+		b.client = b.newWhoIser(socket)
+		b.clientSocket = socket
+	}
+
+	return b.client
 }
