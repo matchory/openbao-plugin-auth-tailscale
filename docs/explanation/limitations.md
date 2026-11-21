@@ -25,7 +25,21 @@ TTL ends, even if the node's tag is removed in the meantime. It is still bound t
 
 Between renewals OpenBao doesn't ask the plugin anything. If a node is deleted and its address given to another
 node, a token issued to the first keeps working from that address until its TTL ends or a renewal is refused.
-Short TTLs keep that window small.
+The same holds for a tag removed from a node. A role without `token_ttl` and `token_max_ttl` gets the mount's
+defaults, 768 hours unless the mount is tuned, so set both on every role.
+
+## The OpenBao host can't log in
+
+The node `tailscaled` runs as on an OpenBao host is always refused, because every local process on that host
+sends from its address. Run a workload that needs a token on a node of its own.
+
+## Forwarding the plugin can't see
+
+The plugin refuses subnet routers and exit nodes by the routes the control server publishes to the OpenBao host.
+The control server publishes only the routes the tailnet policy lets that host use, so a subnet router whose routes
+the OpenBao host has no grant for looks like an ordinary node. So does a node that forwards traffic without
+published routes, such as a Docker host that NATs its containers or a Kubernetes egress proxy. Everything behind
+such a node logs in as that node. Don't bind a tag that a forwarding node carries.
 
 ## No login without tailscaled
 

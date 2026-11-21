@@ -43,6 +43,15 @@ These are OpenBao's standard token fields and behave as in every auth method.
 When the node's key has an expiry, `token_ttl`, `token_max_ttl` and `token_period` are shortened so that a
 token ends no later than the key.
 
+`token_ttl` and `token_max_ttl` also bound how long a token outlives a change to its node: an address passed to
+another node, or a tag removed. [Limitations](../explanation/limitations.md#a-token-is-checked-again-only-at-renewal)
+has the details.
+
+## Entity alias
+
+Every token of a role gets the entity alias named after the role. A role that is deleted and created again under
+the same name gets the same entity, with its groups and policies, even if its `bound_tags` are different.
+
 ## Fields a role does not have
 
 `token_bound_cidrs` and `token_strictly_bind_ip` are not fields of a role. Every token is bound to the tailnet

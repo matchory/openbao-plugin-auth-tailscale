@@ -29,12 +29,25 @@ share its identity.
   that.
 - **Shared-in nodes** belong to another tailnet, whose administrators decide their tags.
 - **Subnet routers and exit nodes** forward traffic for others, which arrives from the router's own address.
+  The plugin knows only the routes the control server publishes, so a tag you bind must not be on any node that
+  forwards traffic another way, such as through NAT for containers. That is property E6.
+- **The OpenBao host's own node** is where every local process on that host sends from. If it could log in, any
+  user on the host would hold the roles its tags match.
 
 ## Fail closed
 
-The plugin can't tell an unknown address from an unreachable `tailscaled`, and doesn't try. Any error, any
-timeout, any missing piece of an answer is a refusal. It also keeps nothing between requests, so there is no
-stale answer to fall back on.
+Any error, any timeout, any missing piece of an answer is a refusal. It also keeps nothing between requests, so
+there is no stale answer to fall back on.
+
+A `tailscaled` that is logged out or stopped answers "no node has this address" for every caller. The plugin
+asks `tailscaled` for its own state on every login, so it can log that case as a warning instead of a refusal
+nobody sees. The caller gets the same refusal either way.
+
+## Who controls the configuration controls the method
+
+`config` names the socket of the `tailscaled` the plugin believes. Whoever can write it can point the plugin at a
+daemon of their own, which answers for any node with any tags. Grant write on `auth/tailscale/config` as you
+would a root token. That is part of property E3.
 
 ## One answer for every refusal
 

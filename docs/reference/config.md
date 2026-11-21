@@ -16,7 +16,10 @@ bao read auth/tailscale/config
 | Default | empty: the platform's default, `/var/run/tailscale/tailscaled.sock` on Linux |
 
 Path of the socket of the `tailscaled` to ask. The user OpenBao runs as must be able to open it; by default any
-local user can.
+local user can. The plugin asks it `whois` and `status`.
+
+Whoever can write this field, or replace the socket at its path, decides which nodes can log in:
+[Security model](../explanation/security-model.md#who-controls-the-configuration-controls-the-method).
 
 ## timeout
 
@@ -25,7 +28,7 @@ local user can.
 | Type | duration |
 | Default | `2s` |
 
-How long one question to `tailscaled` may take. When it passes, the login or renewal is refused. It must be
-greater than zero.
+How long a login or renewal may wait for `tailscaled`. When it passes, the login or renewal is refused.
 
-A read returns it in seconds.
+It counts in whole seconds and must be at least `1s`. A value under a second, such as `500ms`, is truncated to
+`0` and rejected. A read returns it in seconds.
