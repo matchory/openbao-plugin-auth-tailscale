@@ -46,6 +46,12 @@ func (b *backend) loginPaths() []*framework.Path {
 				Callback: b.login,
 				Summary:  "Log in as the tailnet node the request comes from.",
 			},
+			// Lets OpenBao apply a rate limit quota per role, not only per
+			// mount. It names the role without looking it up, so it tells
+			// nobody whether the role exists.
+			logical.ResolveRoleOperation: &framework.PathOperation{
+				Callback: b.resolveRole,
+			},
 		},
 		HelpSynopsis: "Log in with a role, as the tailnet node the request comes from.",
 	}}
@@ -121,10 +127,19 @@ func (b *backend) attest(
 	}
 
 	if err := identity.MatchTags(node, role.BoundTags); err != nil {
-		return nil, fmt.Errorf("node %s, role %q: %w", node.StableID, roleName, err)
+		return nil, fmt.Errorf("node %s with %v, role %q binding %v: %w",
+			node.StableID, node.Tags, roleName, role.BoundTags, err)
 	}
 
 	return &attestation{node: node, role: role, remote: remote, at: now}, nil
+}
+
+func (b *backend) resolveRole(_ context.Context, _ *logical.Request, d *framework.FieldData) (
+	*logical.Response, error,
+) {
+	roleName, _ := d.Get(keyRole).(string)
+
+	return logical.ResolveRoleResponse(roleName)
 }
 
 func (b *backend) login(ctx context.Context, req *logical.Request, d *framework.FieldData) (
@@ -218,14 +233,16 @@ func (b *backend) refuse(req *logical.Request, roleName string, reason error) er
 		log = b.Logger().Debug
 	}
 
-	log("refused", "role", roleName, "remote_addr", remote, "reason", reason)
+	log("refused", "op", req.Operation, "role", roleName, "remote_addr", remote, "reason", reason)
 
 	return logical.ErrPermissionDenied
 }
 
 // renew extends a token only if a login from the same address would succeed
-// now, would name the node that logged in, and would grant the same policies. A tailnet address can pass to
-// another node, and a role or a node's tags can change, while a token lives.
+// now, would name the node that logged in, and would grant the same policies.
+// A tailnet address can pass to another node, and a role or a node's tags can
+// change, while a token lives. The token's lifetimes come from the role as it
+// is now; its other settings stay as they were issued.
 func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.FieldData) (
 	*logical.Response, error,
 ) {

@@ -23,4 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it may send from.
 - A `tailscaled` that is logged out or stopped is logged as a warning, not as
   a debug-level refusal.
+- The login path resolves its role for OpenBao, so a rate limit quota can
+  apply to one role.
 - Tested with OpenBao 2.6 and 2.7 and `tailscaled` 1.104.

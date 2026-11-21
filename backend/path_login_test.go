@@ -595,3 +595,29 @@ func TestRefusalLogLevels(t *testing.T) {
 		}
 	}
 }
+
+// Guards: G6
+func TestResolveRoleNamesAnyRole(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+
+	for _, role := range []string{"api", "nope"} {
+		resp, err := b.HandleRequest(t.Context(), &logical.Request{
+			Operation:  logical.ResolveRoleOperation,
+			Path:       "login",
+			Storage:    s,
+			Data:       map[string]any{"role": role},
+			Connection: &logical.Connection{RemoteAddr: "100.64.0.5"},
+		})
+		if err != nil || resp == nil || resp.Data["role"] != role {
+			t.Errorf("resolve role %q: response %v, error %v", role, resp, err)
+		}
+	}
+
+	// A quota lookup is no login: it neither asks tailscaled nor issues
+	// anything.
+	if who.calls != 0 {
+		t.Errorf("resolving a role asked tailscaled %d times", who.calls)
+	}
+}
