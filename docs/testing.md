@@ -34,16 +34,18 @@ accepted node owns the address and may send from nothing else. A failing input i
 
 ## Security model
 
-`SECURITY.md` publishes the guarantees as headings of the form `### G1: …`. A test that proves one says so in a
-comment directly above it:
+`SECURITY.md` publishes the guarantees as headings of the form `### G1: …`. A test that proves one says so in its
+doc comment, on the line that the function follows or that more comment lines follow:
 
 ```go
 // Guards: G5
 func TestRenewRefusedWhenNodeChanged(t *testing.T) {
 ```
 
-The end-to-end script marks its sections the same way, with `# Guards: G2`. `TestEveryGuaranteeIsGuarded` fails
-when a published guarantee has no guard, and when a guard names a guarantee that isn't published. Run it with
+The end-to-end script marks its sections the same way, with `# Guards: G2`, followed by lines that run a `check`
+before the next blank line. `TestEveryGuaranteeIsGuarded` fails when a published guarantee has no guard, when a
+guard names a guarantee that isn't published, and when a marker marks no test. A marker says which guarantee a
+test is about, not that the test covers all of it: read the tests for what each one checks. Run it with
 `-v` to list the files guarding each guarantee:
 
 ```bash

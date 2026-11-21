@@ -15,6 +15,15 @@ var (
 	guaranteeHeading = regexp.MustCompile(`(?m)^### (G[0-9]+): `)
 	// A test names the guarantees it proves: "// Guards: G1, G3".
 	guardMarker = regexp.MustCompile(`(?m)^\s*(?://|#) Guards: (G[0-9]+(?:, G[0-9]+)*)\s*$`)
+	// A marker counts only where it marks a test: in Go, the doc comment of a
+	// Test or Fuzz function; in a script, a block of lines that runs a check
+	// before the next blank line.
+	attachedMarker = map[string]*regexp.Regexp{
+		".go": regexp.MustCompile(
+			`(?m)^// Guards: (G[0-9]+(?:, G[0-9]+)*)\n(?://.*\n)*func (?:Test|Fuzz)[A-Z]\w*\(`,
+		),
+		".sh": regexp.MustCompile(`(?m)^# Guards: (G[0-9]+(?:, G[0-9]+)*)\n(?:.+\n)*?.*\bcheck `),
+	}
 )
 
 // TestEveryGuaranteeIsGuarded fails when SECURITY.md publishes a guarantee
@@ -61,7 +70,12 @@ func TestEveryGuaranteeIsGuarded(t *testing.T) {
 			return err
 		}
 
-		for _, match := range guardMarker.FindAllStringSubmatch(string(content), -1) {
+		attached := attachedMarker[filepath.Ext(path)].FindAllStringSubmatch(string(content), -1)
+		if all := guardMarker.FindAllString(string(content), -1); len(all) != len(attached) {
+			t.Errorf("%s: %d of its Guards markers mark no test", path, len(all)-len(attached))
+		}
+
+		for _, match := range attached {
 			for id := range strings.SplitSeq(match[1], ", ") {
 				if !slices.Contains(guards[id], path) {
 					guards[id] = append(guards[id], path)
