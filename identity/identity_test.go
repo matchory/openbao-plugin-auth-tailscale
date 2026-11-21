@@ -1,0 +1,246 @@
+package identity
+
+import (
+	"errors"
+	"net/netip"
+	"slices"
+	"testing"
+	"time"
+)
+
+var now = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+
+func validNode() *Node {
+	return &Node{
+		StableID: "nTEST1",
+		Name:     "api-1.example.ts.net.",
+		Tags:     []string{"tag:example-api", "tag:prod"},
+		Addresses: []netip.Addr{
+			netip.MustParseAddr("100.64.0.5"),
+			netip.MustParseAddr("fd7a:115c:a1e0::5"),
+		},
+		AllowedIPs: []netip.Prefix{
+			netip.MustParsePrefix("100.64.0.5/32"),
+			netip.MustParsePrefix("fd7a:115c:a1e0::5/128"),
+		},
+		Tagged: true,
+	}
+}
+
+func TestParseRemoteAddr(t *testing.T) {
+	t.Parallel()
+
+	accepted := map[string]string{
+		"100.64.0.5":                "100.64.0.5",
+		"100.127.255.254":           "100.127.255.254",
+		"fd7a:115c:a1e0::4428:ef52": "fd7a:115c:a1e0::4428:ef52",
+		"::ffff:100.64.0.5":         "100.64.0.5",
+	}
+	for in, want := range accepted {
+		got, err := ParseRemoteAddr(in)
+		if err != nil {
+			t.Errorf("ParseRemoteAddr(%q): unexpected error %v", in, err)
+
+			continue
+		}
+
+		if got != netip.MustParseAddr(want) {
+			t.Errorf("ParseRemoteAddr(%q) = %v, want %v", in, got, want)
+		}
+	}
+
+	refused := []string{
+		"100.128.0.1", "10.0.0.1", "127.0.0.1", "203.0.113.7", "fd7a:115c:a1e1::1",
+		"", "100.64.0.5:443", "fe80::1%eth0", "fd7a:115c:a1e0::5%eth0", "not-an-ip",
+		"::ffff:10.0.0.1",
+	}
+	for _, in := range refused {
+		if _, err := ParseRemoteAddr(in); !errors.Is(err, ErrNotTailnet) {
+			t.Errorf("ParseRemoteAddr(%q): error = %v, want ErrNotTailnet", in, err)
+		}
+	}
+}
+
+func TestCheckNode(t *testing.T) {
+	t.Parallel()
+
+	v4 := netip.MustParseAddr("100.64.0.5")
+	allow := func(prefix string) func(*Node) {
+		return func(n *Node) { n.AllowedIPs = append(n.AllowedIPs, netip.MustParsePrefix(prefix)) }
+	}
+
+	tests := []struct {
+		name   string
+		change func(*Node)
+		remote netip.Addr
+		want   error
+	}{
+		{name: "valid over IPv4", remote: v4},
+		{name: "valid over IPv6", remote: netip.MustParseAddr("fd7a:115c:a1e0::5")},
+		{
+			name:   "untagged",
+			change: func(n *Node) { n.Tagged = false },
+			remote: v4,
+			want:   ErrUntagged,
+		},
+		{name: "shared in", change: func(n *Node) { n.Shared = true }, remote: v4, want: ErrShared},
+		{
+			name:   "marked expired",
+			change: func(n *Node) { n.Expired = true },
+			remote: v4,
+			want:   ErrExpired,
+		},
+		{
+			name:   "key expiry passed",
+			change: func(n *Node) { n.KeyExpiry = now.Add(-time.Second) },
+			remote: v4, want: ErrExpired,
+		},
+		{
+			name:   "key expiry ahead",
+			change: func(n *Node) { n.KeyExpiry = now.Add(time.Hour) },
+			remote: v4,
+		},
+		{
+			name:   "address of another node",
+			remote: netip.MustParseAddr("100.64.0.9"),
+			want:   ErrAddressMismatch,
+		},
+		{name: "hosts a Service over IPv4", change: allow("100.100.104.251/32"), remote: v4},
+		{
+			name:   "hosts a Service over IPv6",
+			change: allow("fd7a:115c:a1e0::1a28:68fc/128"),
+			remote: v4,
+		},
+		{name: "subnet router", change: allow("10.0.0.0/24"), remote: v4, want: ErrRoutes},
+		{name: "exit node", change: allow("0.0.0.0/0"), remote: v4, want: ErrRoutes},
+		{name: "IPv6 exit node", change: allow("::/0"), remote: v4, want: ErrRoutes},
+		{
+			name:   "a range of tailnet addresses",
+			change: allow("100.64.0.0/24"),
+			remote: v4,
+			want:   ErrRoutes,
+		},
+		{
+			name:   "one address outside the tailnet",
+			change: allow("192.0.2.1/32"),
+			remote: v4,
+			want:   ErrRoutes,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			n := validNode()
+			if tc.change != nil {
+				tc.change(n)
+			}
+
+			if err := CheckNode(n, tc.remote, now); !errors.Is(err, tc.want) {
+				t.Errorf("CheckNode() = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckNodeNil(t *testing.T) {
+	t.Parallel()
+
+	if err := CheckNode(nil, netip.MustParseAddr("100.64.0.5"), now); err == nil {
+		t.Error("CheckNode(nil) = nil, want an error")
+	}
+}
+
+func TestMatchTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		bound []string
+		want  error
+	}{
+		{name: "one of the node's tags", bound: []string{"tag:example-api"}},
+		{name: "all of the node's tags", bound: []string{"tag:example-api", "tag:prod"}},
+		{name: "a tag the node lacks", bound: []string{"tag:example-worker"}, want: ErrTagMismatch},
+		{
+			name:  "one present, one missing",
+			bound: []string{"tag:example-api", "tag:example-worker"},
+			want:  ErrTagMismatch,
+		},
+		{name: "nothing bound", bound: nil, want: ErrTagMismatch},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := MatchTags(validNode(), tc.bound); !errors.Is(err, tc.want) {
+				t.Errorf("MatchTags() = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBoundCIDRs(t *testing.T) {
+	t.Parallel()
+
+	want := []netip.Prefix{
+		netip.MustParsePrefix("100.64.0.5/32"),
+		netip.MustParsePrefix("fd7a:115c:a1e0::5/128"),
+	}
+	if got := BoundCIDRs(validNode()); !slices.Equal(got, want) {
+		t.Errorf("BoundCIDRs() = %v, want %v", got, want)
+	}
+
+	v4only := validNode()
+	v4only.Addresses = v4only.Addresses[:1]
+
+	if got := BoundCIDRs(v4only); !slices.Equal(got, want[:1]) {
+		t.Errorf("BoundCIDRs(IPv4 only) = %v, want %v", got, want[:1])
+	}
+}
+
+func TestCapTTL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		ttl    time.Duration
+		expiry time.Duration // from now; zero means the key does not expire
+		want   time.Duration
+	}{
+		{name: "no key expiry", ttl: 30 * time.Minute, want: 30 * time.Minute},
+		{
+			name:   "key expires first",
+			ttl:    30 * time.Minute,
+			expiry: 10 * time.Minute,
+			want:   10 * time.Minute,
+		},
+		{
+			name:   "ttl ends first",
+			ttl:    30 * time.Minute,
+			expiry: 2 * time.Hour,
+			want:   30 * time.Minute,
+		},
+		{
+			name:   "mount default, key expires",
+			ttl:    0,
+			expiry: 10 * time.Minute,
+			want:   10 * time.Minute,
+		},
+		{name: "mount default, no key expiry", ttl: 0, want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			n := validNode()
+			if tc.expiry != 0 {
+				n.KeyExpiry = now.Add(tc.expiry)
+			}
+
+			if got := CapTTL(tc.ttl, n, now); got != tc.want {
+				t.Errorf("CapTTL() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
