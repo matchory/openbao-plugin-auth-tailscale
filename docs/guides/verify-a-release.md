@@ -34,7 +34,7 @@ Releases are reproducible. With the Go toolchain `go.mod` names, the same tag gi
 
 ```bash
 git checkout v0.1.0
-make build GOARCH=amd64
+make build GOARCH=amd64 VERSION=v0.1.0
 sha256sum bin/openbao-plugin-auth-tailscale_linux_amd64
 ```
 

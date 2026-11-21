@@ -65,7 +65,7 @@ A login or a renewal is refused when `tailscaled` gives no answer within the
 configured timeout, or an answer without a node. The plugin keeps nothing
 `tailscaled` said from one request to the next.
 
-### G5: A renewal succeeds only for the node that logged in, under the role as it is now
+### G5: A renewal succeeds only for the node that logged in, with the tags and policies the role has now
 
 Attackers: a node that was given an address another node had; a holder of a
 leaked token; a node whose tag or role was taken away.
@@ -74,6 +74,11 @@ Assumes: E1, E2, E5.
 A renewal repeats every check of a login and also requires the node at the
 address to be the node that logged in. A tailnet address can pass to another
 node; the stable node ID the plugin compares cannot.
+
+A token keeps the policies it was issued with, so a renewal is refused when
+the role's policies have changed since: the caller logs in again and gets a
+token under the role as it is. A change to a role's other token settings,
+such as its type or its number of uses, does not end tokens already issued.
 
 Batch tokens are never renewed, so nothing re-checks them. They end with
 their TTL.

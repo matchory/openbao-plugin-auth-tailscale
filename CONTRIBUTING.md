@@ -9,7 +9,7 @@ Report security issues privately, as described in [SECURITY.md](SECURITY.md).
 - Go, at the version in [go.mod](go.mod) or newer.
 - [golangci-lint](https://golangci-lint.run/), at the version that
   [ci.yml](.github/workflows/ci.yml) pins.
-- Linux, Docker and `sudo` for the end-to-end test.
+- Linux and Docker for the end-to-end test.
 
 ## Build and test
 

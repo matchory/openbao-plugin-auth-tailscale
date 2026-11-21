@@ -191,6 +191,16 @@ call() {
 	curl -sk --max-time 15 -x "http://127.0.0.1:$node_port" -w '\n%{http_code}' "${@:2}" || echo 000
 }
 status() { tail -n 1 <<<"$1"; }
+# refused_for REASON: yes if OpenBao's log has a refusal for REASON since the
+# last call. A 403 alone would also be the answer to a refusal for any other
+# reason.
+LOG_LINES=0
+refused_for() {
+	local found=no
+	tail -n +$((LOG_LINES + 1)) "$WORK/openbao.log" | grep -q "refused:.*reason=.*$1" && found=yes
+	LOG_LINES=$(wc -l <"$WORK/openbao.log")
+	echo "$found"
+}
 body() { sed '$d' <<<"$1"; }
 login() { call "$1" -X POST -d "{\"role\":\"$2\"}" "${@:4}" "$3/v1/auth/tailscale/login"; }
 lookup() { call "$1" -H "X-Vault-Token: $2" "$3/v1/auth/token/lookup-self"; }
@@ -203,25 +213,30 @@ log "Logins"
 r=$(login caller caller "$HTTP_URL")
 check "login, HTTP proxy path" 200 "$(status "$r")"
 token=$(body "$r" | jq -r .auth.client_token)
-check "the token names the caller's address" "$caller4" "$(body "$r" | jq -r .auth.metadata.address)"
+# The proxy chooses the address family on this path
+address=$(body "$r" | jq -r .auth.metadata.address)
+[[ $address == "$caller6" ]] && http_address=$caller6 || http_address=$caller4
+check "the token names one of the caller's addresses" "$http_address" "$address"
 check "the token names the caller's tag" tag:example-caller "$(body "$r" | jq -r .auth.metadata.tags)"
 
 check "login, PROXY protocol path, IPv4" 200 "$(status "$(login caller caller "$TCP_URL4")")"
 r=$(login caller caller "$TCP_URL6")
 check "login, PROXY protocol path, IPv6" 200 "$(status "$r")"
 check "an IPv6 login names the caller's IPv6 address" "$caller6" "$(body "$r" | jq -r .auth.metadata.address)"
+refused_for . >/dev/null
 check "login for a role bound to another tag" 403 "$(status "$(login caller server-only "$HTTP_URL")")"
+check "... because the node lacks the tag" yes "$(refused_for 'node lacks a bound tag')"
 check "login for a role that does not exist" 403 "$(status "$(login caller nope "$HTTP_URL")")"
+check "... because there is no such role" yes "$(refused_for 'no such role')"
 check "login from a node without tags" 403 "$(status "$(login person caller "$HTTP_URL")")"
+check "... because the node has no tags" yes "$(refused_for 'node has no tags')"
 # Guards: G6
 check "the refused caller is told nothing more" '["permission denied"]' \
 	"$(body "$(login person caller "$HTTP_URL")" | jq -c .errors)"
-check "the reason is in OpenBao's debug log" yes \
-	"$(grep -q 'refused:.*reason=.*node has no tags' "$WORK/openbao.log" && echo yes || echo no)"
 
 r=$(login caller caller "$HTTP_URL" -H 'X-Forwarded-For: 100.64.0.99')
 check "login with a forged X-Forwarded-For" 200 "$(status "$r")"
-check "a forged X-Forwarded-For does not change the address" "$caller4" "$(body "$r" | jq -r .auth.metadata.address)"
+check "a forged X-Forwarded-For does not change the address" "$http_address" "$(body "$r" | jq -r .auth.metadata.address)"
 
 log "Token binding"
 # Guards: G2
@@ -239,8 +254,11 @@ caller_id=$(hs nodes list -o json | jq -r '.[] | select(.given_name == "e2e-call
 hs nodes tag --identifier "$caller_id" --tags tag:example-retired >/dev/null
 tagged() { ts server whois --json "$caller4" | jq -e '.Node.Tags == ["tag:example-retired"]' >/dev/null; }
 retry 30 tagged || fail "the server node never saw the caller's new tag"
+refused_for . >/dev/null
 check "renewal after the caller lost its tag" 403 "$(status "$(renew)")"
+check "... because the node lacks the tag" yes "$(refused_for 'node lacks a bound tag')"
 check "login after the caller lost its tag" 403 "$(status "$(login caller caller "$HTTP_URL")")"
+check "... because the node lacks the tag" yes "$(refused_for 'node lacks a bound tag')"
 
 log "Without tailscaled"
 # Guards: G4
@@ -254,7 +272,9 @@ other4=$(ts other ip -4)
 check "control: a forged address on the loopback listener is believed" 200 "$(forged "$other4")"
 kill "$(cat "$WORK/server/pid")"
 retry 10 bash -c "! kill -0 $(cat "$WORK/server/pid") 2>/dev/null" || fail "the server's tailscaled did not stop"
+refused_for . >/dev/null
 check "the same request once tailscaled is gone" 403 "$(forged "$other4")"
+check "... because tailscaled cannot be asked" yes "$(refused_for 'ask tailscaled')"
 
 if ((FAILED != 0)); then
 	fail "at least one case failed"

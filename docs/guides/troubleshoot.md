@@ -8,7 +8,9 @@ from the plugin that contains `refused:` (one line in the log, wrapped here):
   reason="node at 100.64.0.4: node has no tags" remote_addr=100.64.0.4 role=api
 ```
 
-Set OpenBao's `log_level` to `debug`, repeat the login, and find the reason below.
+Set OpenBao's `log_level` to `debug`, repeat the login, and find the reason below. A refusal that is a failure
+and not a decision about the caller, such as an unreachable `tailscaled`, is logged as a warning, so it shows
+at the default level too.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
@@ -25,6 +27,7 @@ Set OpenBao's `log_level` to `debug`, repeat the login, and find the reason belo
 | `no such role` | The role name is wrong | `bao list auth/tailscale/role` |
 | `node lacks a bound tag` | The node doesn't carry every tag in the role's `bound_tags` | Compare `tailscale whois <address>` on the OpenBao host with the role |
 | `address now belongs to another node` | On renewal: the address was given to a different node | Log in again from the new node |
+| `role no longer grants the token's policies` | On renewal: the role's policies changed after the login | Log in again |
 
 ## The plugin doesn't start
 

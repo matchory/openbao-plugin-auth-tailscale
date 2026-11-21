@@ -25,7 +25,7 @@ make test    # unit tests, race detector on
 make lint    # golangci-lint, the version ci.yml pins
 make vuln    # govulncheck
 make build   # release-flag build into bin/
-make e2e     # end-to-end against headscale; Linux, Docker and sudo
+make e2e     # end-to-end against headscale; Linux and Docker
 ```
 
 Run the tests a change touches while working. CI runs everything.

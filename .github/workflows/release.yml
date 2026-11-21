@@ -38,6 +38,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # A tag can be pushed on any commit: what is released has passed here
+      - name: Test
+        id: test
+        run: make test
+
       # The flags in the Makefile make a build reproducible: the same tag
       # and toolchain give the same bytes anywhere.
       - name: Build
@@ -48,7 +53,7 @@ jobs:
           version=${TAG#v}
           mkdir dist
           for arch in amd64 arm64; do
-            make build GOARCH="$arch"
+            make build GOARCH="$arch" VERSION="$TAG"
             mv "bin/openbao-plugin-auth-tailscale_linux_${arch}" \
               "dist/openbao-plugin-auth-tailscale_${version}_linux_${arch}"
           done

@@ -45,7 +45,8 @@ sooner.
 
 A tailnet address can pass to another node, and a tag or a role can change, while a token lives. So a renewal
 runs all four checks again, and also requires the node at the address to have the stable ID of the node that
-logged in.
+logged in. A token keeps the policies it was issued with, so a renewal is refused when the role's policies have
+changed since.
 
 ## Nothing is remembered
 

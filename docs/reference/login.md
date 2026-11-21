@@ -37,5 +37,6 @@ A refused login answers `403` with `permission denied`, whatever the reason.
 ## Renewal
 
 `POST auth/token/renew-self`, with the token, renews it. The request must come from the node that logged in.
-A renewal repeats every check of a login against the role as it is at that moment, and is refused if the
-address now belongs to another node.
+A renewal repeats every check of a login against the role's tags as they are at that moment. It is refused if
+the address now belongs to another node, and if the role's policies have changed since the login: the token
+would keep the old ones.

@@ -11,7 +11,7 @@ guarantees hold for the commit, as [SECURITY.md](../SECURITY.md) describes them:
 4. Two builds of the commit give the same checksum:
 
    ```bash
-   make build GOARCH=amd64 && sha256sum bin/*_linux_amd64
+   make build GOARCH=amd64 VERSION=v0.1.0 && sha256sum bin/*_linux_amd64
    ```
 
 Then tag the commit, signed, and push the tag:
