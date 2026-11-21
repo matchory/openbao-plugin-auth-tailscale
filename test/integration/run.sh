@@ -25,8 +25,8 @@ esac
 
 # Checksums of tailscale_<version>_<arch>.tgz, from pkgs.tailscale.com
 declare -A TAILSCALE_SHA256=(
-	[1.104.7_amd64]=e56693ff74a64f2591b7e819c280635a100aae1ddfb0ef058fcd052b7cd8d16c
-	[1.104.7_arm64]=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
+	["1.104.7_amd64"]=e56693ff74a64f2591b7e819c280635a100aae1ddfb0ef058fcd052b7cd8d16c
+	["1.104.7_arm64"]=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
 )
 
 PLUGIN=openbao-plugin-auth-tailscale
