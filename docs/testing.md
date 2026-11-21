@@ -87,7 +87,8 @@ node, the server node itself, an address no node has, and a subnet router. A for
 nothing. A renewal is refused once the role's policies change and once the caller's tag changes. A login and a
 renewal are refused once `tailscaled` is gone.
 
-`OPENBAO_VERSION` and `TAILSCALE_VERSION` choose the versions; CI runs the newest release of OpenBao's two latest
+`OPENBAO_VERSION` and `TAILSCALE_VERSION` choose the versions, and the script records the checksum of every
+download it accepts: a new version needs its checksums added. CI runs the newest release of OpenBao's two latest
 minors. `E2E_PAUSE=600` keeps everything running for ten minutes after a failure.
 
 ## What no test covers

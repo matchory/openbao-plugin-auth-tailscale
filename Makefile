@@ -4,6 +4,8 @@ GOARCH ?= $(shell go env GOARCH)
 # The release this build is, such as v0.1.0: the plugin reports it to OpenBao.
 # Empty for a build that is not a release.
 VERSION ?=
+# The version ci.yml lints with: another one reads .golangci.toml differently.
+GOLANGCI_LINT_VERSION := 2.14.0
 
 .PHONY: build test lint vuln e2e
 
@@ -18,6 +20,8 @@ test:
 	go tool gotestsum $(GOTESTSUM_FLAGS) -- -race -cover $(TESTFLAGS) ./...
 
 lint:
+	@golangci-lint version --short | grep -qx '$(GOLANGCI_LINT_VERSION)' || \
+		{ echo "make lint needs golangci-lint $(GOLANGCI_LINT_VERSION), the version ci.yml pins" >&2; exit 1; }
 	golangci-lint run
 
 vuln:

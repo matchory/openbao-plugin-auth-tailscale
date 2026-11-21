@@ -28,6 +28,15 @@ declare -A TAILSCALE_SHA256=(
 	["1.104.7_amd64"]=e56693ff74a64f2591b7e819c280635a100aae1ddfb0ef058fcd052b7cd8d16c
 	["1.104.7_arm64"]=d6bed2720310b328b861f943d7b4016c5358a9bad60575eb51e8143b79068484
 )
+# Checksums of openbao_<version>_linux_<arch>.tar.gz, from the release's
+# checksums.txt: recorded here so a changed download fails instead of
+# being checked against a list fetched from the same place
+declare -A OPENBAO_SHA256=(
+	["2.6.6_amd64"]=9df0ae1f5e15c8b5ad0a61be930c7d0e5d3e507ce9cbd912c161463f5130e644
+	["2.6.6_arm64"]=5eda3fd7cff9d7e4e1cc21525b9919ecc59ffd69f66f7c391deca4f106734525
+	["2.7.3_amd64"]=131df9a21cf3dd2dff47107110b369c9974cbdaa482bcbc723b81b3403c68ecd
+	["2.7.3_arm64"]=b505b07af4206fdf0e81b747fcb7e9e63f2c2b05e26ead973cce62d0ed07d0e0
+)
 
 PLUGIN=openbao-plugin-auth-tailscale
 PLUGIN_BINARY=${PLUGIN_BINARY:-$ROOT/bin/${PLUGIN}_linux_$ARCH}
@@ -100,10 +109,10 @@ tar -xzf "$WORK/$tgz" -C "$WORK" --strip-components=1 \
 	"tailscale_${TAILSCALE_VERSION}_$ARCH/tailscale" "tailscale_${TAILSCALE_VERSION}_$ARCH/tailscaled"
 
 bao_tgz=openbao_${OPENBAO_VERSION}_linux_$ARCH.tar.gz
-release=https://github.com/openbao/openbao/releases/download/v$OPENBAO_VERSION
-curl -fsSL -o "$WORK/$bao_tgz" "$release/$bao_tgz"
-curl -fsSL -o "$WORK/checksums.txt" "$release/checksums.txt"
-(cd "$WORK" && grep " $bao_tgz\$" checksums.txt | sha256sum -c - >/dev/null)
+bao_sum=${OPENBAO_SHA256[${OPENBAO_VERSION}_$ARCH]:-}
+[[ -n $bao_sum ]] || fail "no checksum recorded for $bao_tgz"
+curl -fsSL -o "$WORK/$bao_tgz" "https://github.com/openbao/openbao/releases/download/v$OPENBAO_VERSION/$bao_tgz"
+echo "$bao_sum  $WORK/$bao_tgz" | sha256sum -c - >/dev/null
 tar -xzf "$WORK/$bao_tgz" -C "$WORK" bao
 
 log "Starting headscale at $URL"
