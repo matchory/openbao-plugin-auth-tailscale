@@ -81,10 +81,11 @@ trusts `X-Forwarded-For` from loopback, and the TCP forward with PROXY protocol,
 itself. A request sent through a node's outbound proxy arrives from that node, which is how one script acts as
 several nodes.
 
-It checks that a login works over both paths and both address families, that a token works only from the
-caller, that a role bound to another tag, an unknown role and an untagged node are all refused, that a forged
-`X-Forwarded-For` changes nothing, that a renewal is refused once the caller's tag changes, and that a login is
-refused once `tailscaled` is gone.
+It checks that a login works over both paths and both address families, and that a token works only from the
+caller and not off the tailnet. These are refused: a role bound to another tag, an unknown role, an untagged
+node, the server node itself, an address no node has, and a subnet router. A forged `X-Forwarded-For` changes
+nothing. A renewal is refused once the role's policies change and once the caller's tag changes. A login and a
+renewal are refused once `tailscaled` is gone.
 
 `OPENBAO_VERSION` and `TAILSCALE_VERSION` choose the versions; CI runs the newest release of OpenBao's two latest
 minors. `E2E_PAUSE=600` keeps everything running for ten minutes after a failure.
@@ -93,6 +94,8 @@ minors. `E2E_PAUSE=600` keeps everything running for ten minutes after a failure
 
 - A hosted Tailscale control server. headscale stands in for it; the plugin only talks to `tailscaled`.
 - A node that hosts a Tailscale Service. The rule that lets it log in has a unit test; headscale has no Services.
+- A node shared in from another tailnet, and a node key that expires. headscale has no node sharing, and the
+  test runs it without key expiry. Both rules have unit tests.
 - An OpenBao cluster with more than one node, including a login after a leader change.
 - A listener directly on the tailnet interface. Userspace `tailscaled` hands connections to a backend from
   loopback, so the end-to-end test always goes through `tailscale serve`.

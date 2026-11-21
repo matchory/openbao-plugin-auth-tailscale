@@ -226,6 +226,9 @@ check "login for a role that does not exist" 403 "$(status "$(login caller nope 
 check "... because there is no such role" yes "$(refused_for 'no such role')"
 check "login from a node without tags" 403 "$(status "$(login person caller "$HTTP_URL")")"
 check "... because the node has no tags" yes "$(refused_for 'node has no tags')"
+# Every local process on the OpenBao host sends from this node
+check "login from the server node, for its own tag" 403 "$(status "$(login server server-only "$HTTP_URL")")"
+check "... because it is the node tailscaled runs as" yes "$(refused_for 'node is the one tailscaled runs as')"
 # Guards: G6
 check "the refused caller is told nothing more" '["permission denied"]' \
 	"$(body "$(login person caller "$HTTP_URL")" | jq -c .errors)"
@@ -241,11 +244,19 @@ check "the token works from the caller, IPv4" 200 "$(status "$(lookup caller "$t
 check "the token works from the caller, IPv6" 200 "$(status "$(lookup caller "$token" "$TCP_URL6")")"
 check "the token fails from another node with the same tag" 403 "$(status "$(lookup other "$token" "$HTTP_URL")")"
 check "the token fails from that node on the PROXY protocol path" 403 "$(status "$(lookup other "$token" "$TCP_URL4")")"
+check "the token fails off the tailnet" 403 \
+	"$(curl -s -o /dev/null -w '%{http_code}' -H "X-Vault-Token: $token" "$VAULT_ADDR/v1/auth/token/lookup-self")"
 
 log "Renewal"
 # Guards: G5
 renew() { call caller -X POST -H "X-Vault-Token: $token" "$HTTP_URL/v1/auth/token/renew-self"; }
 check "renewal from the caller" 200 "$(status "$(renew)")"
+bao write auth/tailscale/role/caller token_policies=example >/dev/null
+refused_for . >/dev/null
+check "renewal after the role's policies changed" 403 "$(status "$(renew)")"
+check "... because the role no longer grants them" yes "$(refused_for 'role no longer grants')"
+bao write auth/tailscale/role/caller token_policies= >/dev/null
+check "renewal once the policies are back" 200 "$(status "$(renew)")"
 caller_id=$(hs nodes list -o json | jq -r '.[] | select(.given_name == "e2e-caller") | .id')
 hs nodes tag --identifier "$caller_id" --tags tag:example-retired >/dev/null
 tagged() { ts server whois --json "$caller4" | jq -e '.Node.Tags == ["tag:example-retired"]' >/dev/null; }
@@ -266,10 +277,31 @@ forged() {
 }
 other4=$(ts other ip -4)
 check "control: a forged address on the loopback listener is believed" 200 "$(forged "$other4")"
+refused_for . >/dev/null
+check "login from an address no node has" 403 "$(forged 100.64.0.99)"
+check "... because tailscaled knows no such node" yes "$(refused_for 'no node has this address')"
+
+# Guards: G3
+# A subnet router's clients arrive from the router's address. The policy
+# grants the server node the route: a node sees only routes it may use.
+ts other set --advertise-routes=10.99.0.0/24
+other_id=$(hs nodes list -o json | jq -r '.[] | select(.given_name == "e2e-other") | .id')
+hs nodes approve-routes --identifier "$other_id" --routes 10.99.0.0/24 >/dev/null
+routes() { ts server whois --json "$other4" | jq -e '.Node.AllowedIPs | index("10.99.0.0/24")' >/dev/null; }
+retry 30 routes || fail "the server node never saw the other node's route"
+refused_for . >/dev/null
+check "login from a subnet router" 403 "$(status "$(login other caller "$HTTP_URL")")"
+check "... because the node routes for other addresses" yes "$(refused_for 'node routes for other addresses')"
+
+# Guards: G4
 kill "$(cat "$WORK/server/pid")"
 retry 10 bash -c "! kill -0 $(cat "$WORK/server/pid") 2>/dev/null" || fail "the server's tailscaled did not stop"
 refused_for . >/dev/null
 check "the same request once tailscaled is gone" 403 "$(forged "$other4")"
+check "... because tailscaled cannot be asked" yes "$(refused_for 'ask tailscaled')"
+check "renewal once tailscaled is gone" 403 \
+	"$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST -H "X-Forwarded-For: $caller4" \
+		-H "X-Vault-Token: $token" http://127.0.0.1:18202/v1/auth/token/renew-self)"
 check "... because tailscaled cannot be asked" yes "$(refused_for 'ask tailscaled')"
 
 if ((FAILED != 0)); then
