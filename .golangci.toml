@@ -1,0 +1,103 @@
+version = "2"
+
+[formatters]
+enable = ["gci", "gofumpt", "golines"]
+
+[formatters.settings.gci]
+sections = ["standard", "default", "prefix(github.com/matchory/openbao-plugin-auth-tailscale)"]
+custom-order = true
+
+[linters]
+default = "standard"
+enable = [
+  # Bug detection
+  "bodyclose",     # HTTP response bodies closed
+  "errorlint",     # proper error wrapping
+  "nilerr",        # nil error with invalid value
+  "nilnil",        # simultaneous nil error + invalid value
+  "durationcheck", # two durations multiplied together
+
+  # Context
+  "contextcheck", # correct context usage
+  "fatcontext",   # nested contexts in loops
+  "noctx",        # HTTP requests without context
+
+  # Code quality
+  "cyclop",      # cyclomatic complexity
+  "dupl",        # code clones
+  "goconst",     # repeated strings
+  "gocritic",    # bugs, perf, style
+  "unconvert",   # unnecessary conversions
+  "unparam",     # unused params
+  "wastedassign", # wasted assignments
+  "funcorder",      # constructors after types, exported methods first
+  "nonamedreturns", # no named results
+  "containedctx",     # contexts stored in structs
+  "goprintffuncname", # printf-like functions named ...f
+  "musttag",          # marshalled structs have field tags
+  "perfsprint",       # fmt.Sprintf where a faster call does
+  "revive",           # golint successor: docs, naming, unused params
+
+  # Security
+  "gosec",
+
+  # Tests
+  "usetesting", # t.TempDir, t.Context and friends
+
+  # Modern Go (1.22+)
+  "intrange",    # integer ranges
+  "copyloopvar", # loop variable issues
+  "modernize",   # suggests modern Go idioms
+
+  # Style
+  "godot",      # comments end in period
+  "nakedret",   # naked returns
+  "nolintlint", # proper nolint directives
+]
+
+[linters.settings.cyclop]
+max-complexity = 15
+package-average = 10.0
+
+[linters.settings.errcheck]
+check-type-assertions = true
+
+[linters.settings.govet]
+enable-all = true
+disable = ["fieldalignment", "shadow"]
+
+# errcheck and the std-error-handling preset decide which unchecked errors
+# matter; gosec's G104 repeats that check with a different allowlist.
+[linters.settings.gosec]
+excludes = ["G104"]
+
+[linters.settings.nakedret]
+max-func-lines = 0
+
+[linters.settings.nolintlint]
+require-explanation = true
+require-specific = true
+
+[linters.exclusions]
+presets = ["std-error-handling", "common-false-positives"]
+
+[[linters.exclusions.rules]]
+source = "TODO"
+linters = ["godot"]
+
+# "Guards: Gn" markers (SECURITY.md) are a machine-readable directive, not prose.
+[[linters.exclusions.rules]]
+source = "^// Guards: G[0-9]+"
+linters = ["godot"]
+
+[[linters.exclusions.rules]]
+path = "_test\\.go"
+linters = [
+  "bodyclose",
+  "cyclop",
+  "dupl",
+  "errcheck",
+  "goconst",
+  "gosec",
+  "noctx",
+]
