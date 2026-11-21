@@ -192,3 +192,33 @@ func (b *backend) refuse(req *logical.Request, roleName string, reason error) er
 
 	return logical.ErrPermissionDenied
 }
+
+var errNodeChanged = errors.New("address now belongs to another node")
+
+// renew extends a token only if a login from the same address would succeed
+// now and would name the node that logged in. A tailnet address can pass to
+// another node, and a role or a node's tags can change, while a token lives.
+func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.FieldData) (
+	*logical.Response, error,
+) {
+	roleName, _ := req.Auth.InternalData[keyRole].(string)
+	nodeID, _ := req.Auth.InternalData[keyNodeID].(string)
+
+	att, err := b.attest(ctx, req, roleName)
+	if err != nil {
+		return nil, b.refuse(req, roleName, err)
+	}
+
+	if nodeID == "" || att.node.StableID != nodeID {
+		return nil, b.refuse(req, roleName, errNodeChanged)
+	}
+
+	auth := req.Auth
+	auth.TTL = att.role.TokenTTL
+	auth.MaxTTL = att.role.TokenMaxTTL
+	auth.Period = att.role.TokenPeriod
+
+	b.bindToNode(auth, att)
+
+	return &logical.Response{Auth: auth}, nil
+}

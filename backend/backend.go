@@ -51,6 +51,7 @@ func newBackend() *backend {
 	b.Backend = &framework.Backend{
 		Help:        backendHelp,
 		BackendType: logical.TypeCredential,
+		AuthRenew:   b.renew,
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{"login"},
 		},
