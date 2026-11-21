@@ -1,0 +1,37 @@
+# See: https://github.com/DavidAnson/markdownlint
+
+# Unordered list style
+MD004:
+  style: dash
+
+# Line length: 120 for prose, disabled for tables
+MD013:
+  line_length: 120
+  tables: false
+
+# Duplicate headings: only among siblings, as CHANGELOG.md repeats "Fixed" per release
+MD024:
+  siblings_only: true
+
+# One H1: the page's heading. The frontmatter title is for the website and does not count
+MD025:
+  front_matter_title: ""
+
+# Inline HTML: only the elements the README's centred header uses
+MD033:
+  allowed_elements: [a, br, h1, img, p]
+
+# Ordered list item prefix
+MD029:
+  style: ordered
+
+# Spaces after list markers
+MD030:
+  ul_single: 1
+  ol_single: 1
+  ul_multi: 1
+  ol_multi: 1
+
+# Code block style
+MD046:
+  style: fenced

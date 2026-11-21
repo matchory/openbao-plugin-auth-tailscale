@@ -1,0 +1,120 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Upload the findings to code scanning
+      security-events: write
+      # only required in private repositories
+      actions: read
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version-file: go.mod
+
+      # Go is linted here rather than in super-linter, with the version
+      # .golangci.toml is written for. See linter.yml.
+      - name: Lint
+        id: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.14.0
+          # The text output keeps the annotations; SARIF goes to code scanning
+          args: --output.text.path=stdout --output.sarif.path=golangci-lint.sarif
+
+      # Pull requests from forks get no security-events permission
+      - name: Upload lint findings
+        id: upload-sarif
+        if: >-
+          !cancelled() && hashFiles('golangci-lint.sarif') != '' &&
+          (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: golangci-lint.sarif
+          category: golangci-lint
+
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version-file: go.mod
+
+      # JUnit reports become annotations
+      - name: Test
+        id: go-test
+        run: |
+          mkdir -p "${RUNNER_TEMP}/cover/unit" "${RUNNER_TEMP}/junit"
+          go tool gotestsum --format github-actions --junitfile "${RUNNER_TEMP}/junit/unit.xml" -- \
+            -race -cover ./... -args -test.gocoverdir="${RUNNER_TEMP}/cover/unit"
+
+      - name: Report test results
+        id: junit
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@6ef3fdcfcd5f0b5d14df3e659ef19b8c6820f93d # v6.6.1
+        with:
+          report_paths: ${{ runner.temp }}/junit/*.xml
+          # Annotations and the job summary need no checks permission
+          annotate_only: true
+          check_name: Go Tests
+
+      # Informational only: no threshold
+      - name: Coverage
+        id: coverage
+        if: ${{ !cancelled() }}
+        run: |
+          dirs="${RUNNER_TEMP}/cover/unit"
+          go tool covdata textfmt -i="$dirs" -o coverage.out
+          go tool cover -html=coverage.out -o coverage.html
+          total=$(go tool cover -func=coverage.out | awk 'END { print $NF }')
+          {
+            echo "### Coverage: ${total}"
+            echo
+            echo "| Package | Statements |"
+            echo "| --- | ---: |"
+            go tool covdata percent -i="$dirs" |
+              awk '{ sub("github.com/matchory/openbao-plugin-auth-tailscale/", "", $1); print "| `" $1 "` | " $3 " |" }'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        id: upload-coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.html
