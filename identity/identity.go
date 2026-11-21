@@ -12,19 +12,27 @@ import (
 	"time"
 )
 
+// A Refusal is a decision that a caller may not log in. Any other error on
+// the way to that decision is a failure to decide: it refuses the caller
+// just the same, but it is the operator's problem, not the caller's.
+type Refusal string
+
+func (r Refusal) Error() string { return string(r) }
+
 // The reasons a login is refused. Callers of this package log them; the
 // caller of the login never sees which one applied.
-var (
-	ErrNotTailnet      = errors.New("address is not a Tailscale address")
-	ErrUntagged        = errors.New("node has no tags")
-	ErrShared          = errors.New("node is shared in from another tailnet")
-	ErrExpired         = errors.New("node key has expired")
-	ErrAddressMismatch = errors.New("address is not one of the node's own")
-	ErrRoutes          = errors.New("node routes for other addresses")
-	ErrTagMismatch     = errors.New("node lacks a bound tag")
-
-	errNoNode = errors.New("no node")
+const (
+	ErrNotTailnet      Refusal = "address is not a Tailscale address"
+	ErrUnknownAddress  Refusal = "no node has this address"
+	ErrUntagged        Refusal = "node has no tags"
+	ErrShared          Refusal = "node is shared in from another tailnet"
+	ErrExpired         Refusal = "node key has expired"
+	ErrAddressMismatch Refusal = "address is not one of the node's own"
+	ErrRoutes          Refusal = "node routes for other addresses"
+	ErrTagMismatch     Refusal = "node lacks a bound tag"
 )
+
+var errNoNode = errors.New("no node")
 
 // The ranges Tailscale assigns node and Service addresses from.
 var (
@@ -38,7 +46,8 @@ type Node struct {
 	// address can pass to another node; a stable ID cannot.
 	StableID string
 	Name     string
-	Tags     []string
+	// Tags is empty for a node that belongs to a person.
+	Tags []string
 	// Addresses are the node's own tailnet addresses.
 	Addresses []netip.Addr
 	// AllowedIPs is everything the node may send from: its own addresses,
@@ -47,15 +56,15 @@ type Node struct {
 	// KeyExpiry is the zero time when the node key does not expire.
 	KeyExpiry time.Time
 	Expired   bool
-	Tagged    bool
 	// Shared is true for a node shared in from another tailnet.
 	Shared bool
 }
 
 // WhoIser finds the node that owns a tailnet address.
 type WhoIser interface {
-	// WhoIs returns the node that owns addr, or an error. It never returns
-	// a nil node without an error.
+	// WhoIs returns the node that owns addr, ErrUnknownAddress when no
+	// node does, or another error when it cannot tell. It never returns a
+	// nil node without an error.
 	WhoIs(ctx context.Context, addr netip.Addr) (*Node, error)
 }
 
@@ -81,7 +90,7 @@ func CheckNode(n *Node, remote netip.Addr, now time.Time) error {
 	switch {
 	case n == nil:
 		return errNoNode
-	case !n.Tagged:
+	case len(n.Tags) == 0:
 		return ErrUntagged
 	case n.Shared:
 		return ErrShared
@@ -129,20 +138,14 @@ func BoundCIDRs(n *Node) []netip.Prefix {
 	return cidrs
 }
 
-// CapTTL shortens ttl so a token does not outlive the node key. A ttl of
-// zero means "the mount's default" and is returned unchanged when the key
-// does not expire.
-func CapTTL(ttl time.Duration, n *Node, now time.Time) time.Duration {
+// CapTTL returns ttl, or the time the node key has left counted from start
+// if that is shorter. A key that does not expire caps nothing.
+func CapTTL(ttl time.Duration, n *Node, start time.Time) time.Duration {
 	if n.KeyExpiry.IsZero() {
 		return ttl
 	}
 
-	left := n.KeyExpiry.Sub(now)
-	if ttl == 0 || left < ttl {
-		return left
-	}
-
-	return ttl
+	return min(ttl, n.KeyExpiry.Sub(start))
 }
 
 func isTailnet(addr netip.Addr) bool {

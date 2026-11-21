@@ -33,6 +33,10 @@ func New(socket string) identity.WhoIser {
 
 func (c *client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, error) {
 	who, err := c.local.WhoIs(ctx, addr.String())
+	if errors.Is(err, local.ErrPeerNotFound) {
+		return nil, identity.ErrUnknownAddress
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("whois %s: %w", addr, err)
 	}
@@ -58,7 +62,15 @@ func convert(n *tailcfg.Node) *identity.Node {
 		AllowedIPs: n.AllowedIPs,
 		KeyExpiry:  n.KeyExpiry,
 		Expired:    n.Expired,
-		Tagged:     n.IsTagged(),
 		Shared:     n.Sharer != 0,
 	}
+}
+
+// CheckTag reports why tag is not a Tailscale tag, by Tailscale's own rule.
+func CheckTag(tag string) error {
+	if err := tailcfg.CheckTag(tag); err != nil {
+		return fmt.Errorf("not a Tailscale tag: %w", err)
+	}
+
+	return nil
 }

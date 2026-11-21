@@ -15,8 +15,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A tag can be pushed on any commit: what is released has passed the same
+  # checks as a pull request
+  ci:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+  e2e:
+    name: End-to-end
+    uses: ./.github/workflows/e2e.yml
+    permissions:
+      contents: read
+
   release:
     name: Build, attest and publish
+    needs: [ci, e2e]
     runs-on: ubuntu-latest
     permissions:
       # Create the release
@@ -37,11 +54,6 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
         with:
           go-version-file: go.mod
-
-      # A tag can be pushed on any commit: what is released has passed here
-      - name: Test
-        id: test
-        run: make test
 
       # The flags in the Makefile make a build reproducible: the same tag
       # and toolchain give the same bytes anywhere.

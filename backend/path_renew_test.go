@@ -25,14 +25,6 @@ func renew(
 	})
 }
 
-func assertRenewalRefused(t *testing.T, resp *logical.Response, err error) {
-	t.Helper()
-
-	if !errors.Is(err, logical.ErrPermissionDenied) || resp != nil {
-		t.Errorf("renewal = %v, %v; want no response and ErrPermissionDenied", resp, err)
-	}
-}
-
 // Guards: G5
 func TestRenewSucceeds(t *testing.T) {
 	t.Parallel()
@@ -66,92 +58,77 @@ func TestRenewOverTheOtherAddressFamily(t *testing.T) {
 	}
 }
 
-// Guards: G5
-func TestRenewRefusedWhenNodeChanged(t *testing.T) {
+// Guards: G4, G5
+func TestRenewRefusals(t *testing.T) {
 	t.Parallel()
 
-	b, s, who := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	// The address now belongs to another node with the same tags.
-	who.node.StableID = "nOTHER"
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G5
-func TestRenewRefusedWhenRoleDeleted(t *testing.T) {
-	t.Parallel()
-
-	b, s, _ := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	request(t, b, s, logical.DeleteOperation, "role/api", nil)
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G5
-func TestRenewRefusedWhenTagRemoved(t *testing.T) {
-	t.Parallel()
-
-	b, s, who := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	who.node.Tags = []string{"tag:prod"}
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G5
-func TestRenewRefusedWhenRoleRebound(t *testing.T) {
-	t.Parallel()
-
-	b, s, _ := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-worker"}})
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G4
-func TestRenewRefusedWhenTailscaledDown(t *testing.T) {
-	t.Parallel()
-
-	b, s, who := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	who.node, who.err = nil, errors.New("connection refused")
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G5
-func TestRenewRefusedWithoutInternalData(t *testing.T) {
-	t.Parallel()
-
-	for _, missing := range []string{"node_id", "role"} {
-		b, s, _ := loginBackend(t)
-		auth := mustLogin(t, b, s, "100.64.0.5")
-
-		delete(auth.InternalData, missing)
-
-		resp, err := renew(t, b, s, auth, "100.64.0.5")
-		assertRenewalRefused(t, resp, err)
+	tests := []struct {
+		name string
+		// change is what happens between the login and the renewal.
+		change func(t *testing.T, b *backend, s logical.Storage, who *fakeWhoIser, auth *logical.Auth)
+	}{
+		{"the address passed to another node with the same tags", func(
+			_ *testing.T, _ *backend, _ logical.Storage, who *fakeWhoIser, _ *logical.Auth,
+		) {
+			who.node.StableID = "nOTHER"
+		}},
+		{"the node lost the tag", func(
+			_ *testing.T, _ *backend, _ logical.Storage, who *fakeWhoIser, _ *logical.Auth,
+		) {
+			who.node.Tags = []string{"tag:prod"}
+		}},
+		{"tailscaled is down", func(
+			_ *testing.T, _ *backend, _ logical.Storage, who *fakeWhoIser, _ *logical.Auth,
+		) {
+			who.node, who.err = nil, errors.New("connection refused")
+		}},
+		{"the role was deleted", func(
+			t *testing.T, b *backend, s logical.Storage, _ *fakeWhoIser, _ *logical.Auth,
+		) {
+			t.Helper()
+			request(t, b, s, logical.DeleteOperation, "role/api", nil)
+		}},
+		{"the role binds another tag", func(
+			t *testing.T, b *backend, s logical.Storage, _ *fakeWhoIser, _ *logical.Auth,
+		) {
+			t.Helper()
+			writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-worker"}})
+		}},
+		{"the role grants other policies", func(
+			t *testing.T, b *backend, s logical.Storage, _ *fakeWhoIser, _ *logical.Auth,
+		) {
+			t.Helper()
+			writeRole(t, b, s, "api", map[string]any{"token_policies": []string{"api", "more"}})
+		}},
+		{"the token does not say which node logged in", func(
+			_ *testing.T, _ *backend, _ logical.Storage, _ *fakeWhoIser, auth *logical.Auth,
+		) {
+			delete(auth.InternalData, "node_id")
+		}},
+		{"the token names its node in another type", func(
+			_ *testing.T, _ *backend, _ logical.Storage, _ *fakeWhoIser, auth *logical.Auth,
+		) {
+			auth.InternalData["node_id"] = 7
+		}},
+		{"the token does not say which role it used", func(
+			_ *testing.T, _ *backend, _ logical.Storage, _ *fakeWhoIser, auth *logical.Auth,
+		) {
+			delete(auth.InternalData, "role")
+		}},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	b, s, _ := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-	auth.InternalData["node_id"] = 7
+			b, s, who := loginBackend(t)
+			auth := mustLogin(t, b, s, "100.64.0.5")
 
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
+			tc.change(t, b, s, who, auth)
+
+			resp, err := renew(t, b, s, auth, "100.64.0.5")
+			assertRefused(t, resp, err)
+		})
+	}
 }
 
 // The framework answers a renewal that carries no token before the backend
@@ -190,52 +167,9 @@ func TestRenewPicksUpRoleTTL(t *testing.T) {
 	}
 }
 
-func TestRenewCapsTTLAtKeyExpiry(t *testing.T) {
-	t.Parallel()
-
-	b, s, who := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	who.node.KeyExpiry = testNow.Add(5 * time.Minute)
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	if err != nil || resp == nil {
-		t.Fatalf("renewal = %v, %v", resp, err)
-	}
-
-	if resp.Auth.TTL != 5*time.Minute {
-		t.Errorf("TTL = %v, want 5m", resp.Auth.TTL)
-	}
-}
-
-// Guards: G5
-func TestRenewRefusedWhenPoliciesChanged(t *testing.T) {
-	t.Parallel()
-
-	b, s, _ := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	writeRole(t, b, s, "api", map[string]any{"token_policies": []string{"api", "more"}})
-
-	resp, err := renew(t, b, s, auth, "100.64.0.5")
-	assertRenewalRefused(t, resp, err)
-}
-
-// Guards: G5
-func TestRenewWithUnchangedPolicies(t *testing.T) {
-	t.Parallel()
-
-	b, s, _ := loginBackend(t)
-	auth := mustLogin(t, b, s, "100.64.0.5")
-
-	if resp, err := renew(t, b, s, auth, "100.64.0.5"); err != nil || resp == nil {
-		t.Errorf("renewal = %v, %v", resp, err)
-	}
-}
-
 // OpenBao counts a token's maximum lifetime from when it was issued, so the
 // cap for an expiring node key is counted from then too.
-func TestRenewCapsMaxTTLFromIssueTime(t *testing.T) {
+func TestRenewCapsLifetimesAtKeyExpiry(t *testing.T) {
 	t.Parallel()
 
 	b, s, who := loginBackend(t)

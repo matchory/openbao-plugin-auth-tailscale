@@ -23,7 +23,6 @@ func validNode() *Node {
 			netip.MustParsePrefix("100.64.0.5/32"),
 			netip.MustParsePrefix("fd7a:115c:a1e0::5/128"),
 		},
-		Tagged: true,
 	}
 }
 
@@ -81,7 +80,7 @@ func TestCheckNode(t *testing.T) {
 		{name: "valid over IPv6", remote: netip.MustParseAddr("fd7a:115c:a1e0::5")},
 		{
 			name:   "untagged",
-			change: func(n *Node) { n.Tagged = false },
+			change: func(n *Node) { n.Tags = nil },
 			remote: v4,
 			want:   ErrUntagged,
 		},
@@ -225,13 +224,6 @@ func TestCapTTL(t *testing.T) {
 			expiry: 2 * time.Hour,
 			want:   30 * time.Minute,
 		},
-		{
-			name:   "mount default, key expires",
-			ttl:    0,
-			expiry: 10 * time.Minute,
-			want:   10 * time.Minute,
-		},
-		{name: "mount default, no key expiry", ttl: 0, want: 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

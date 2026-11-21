@@ -13,8 +13,9 @@ build:
 		-ldflags "-s -w -buildid= -X github.com/matchory/$(BINARY)/backend.version=$(VERSION)" \
 		-o bin/$(BINARY)_$(GOOS)_$(GOARCH) ./cmd/$(BINARY)
 
+# CI adds report options through the two variables; the tests are the same.
 test:
-	go tool gotestsum -- -race -cover ./...
+	go tool gotestsum $(GOTESTSUM_FLAGS) -- -race -cover $(TESTFLAGS) ./...
 
 lint:
 	golangci-lint run

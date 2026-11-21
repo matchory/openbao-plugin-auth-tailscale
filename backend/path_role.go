@@ -3,20 +3,16 @@ package backend
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/helper/tokenutil"
 	"github.com/openbao/openbao/sdk/v2/logical"
+
+	"github.com/matchory/openbao-plugin-auth-tailscale/tailscaled"
 )
 
 const rolePrefix = "role/"
-
-// tagPattern is Tailscale's form for a tag: "tag:", a letter, then letters,
-// digits and dashes.
-var tagPattern = regexp.MustCompile(`^tag:[a-zA-Z][a-zA-Z0-9-]*$`)
 
 type roleEntry struct {
 	tokenutil.TokenParams
@@ -25,14 +21,13 @@ type roleEntry struct {
 	BoundTags []string `json:"bound_tags"`
 }
 
-// tokenFields are the token settings a role may carry. The two that bind a
-// token to addresses are missing on purpose: the method binds every token to
-// the addresses of the node that logged in.
-func tokenFields() []string {
-	return []string{
-		"token_ttl", "token_max_ttl", "token_policies", "token_type", "token_period",
-		"token_explicit_max_ttl", "token_no_default_policy", "token_num_uses",
-	}
+// tokenFields are the token settings a role may carry: what a write accepts
+// and a read returns. The two that bind a token to addresses are missing on
+// purpose: the method binds every token to the addresses of the node that
+// logged in.
+var tokenFields = []string{
+	"token_ttl", "token_max_ttl", "token_policies", "token_type", "token_period",
+	"token_explicit_max_ttl", "token_no_default_policy", "token_num_uses",
 }
 
 func (b *backend) rolePaths() []*framework.Path {
@@ -46,7 +41,7 @@ func (b *backend) rolePaths() []*framework.Path {
 			Description: "Tailscale tags a node must carry to log in with this role. It must carry all of them.",
 		},
 	}
-	tokenutil.AddTokenFieldsWithAllowList(fields, tokenFields())
+	tokenutil.AddTokenFieldsWithAllowList(fields, tokenFields)
 
 	return []*framework.Path{
 		{
@@ -88,7 +83,7 @@ func (b *backend) rolePaths() []*framework.Path {
 
 // role returns the named role, or nil when there is none.
 func (b *backend) role(ctx context.Context, s logical.Storage, name string) (*roleEntry, error) {
-	entry, err := s.Get(ctx, rolePrefix+strings.ToLower(name))
+	entry, err := s.Get(ctx, rolePrefix+name)
 	if err != nil {
 		return nil, fmt.Errorf("read role %q: %w", name, err)
 	}
@@ -141,10 +136,13 @@ func (b *backend) readRole(ctx context.Context, req *logical.Request, d *framewo
 		return nil, err
 	}
 
+	all := map[string]any{}
+	role.PopulateTokenData(all)
+
 	data := map[string]any{"bound_tags": role.BoundTags}
-	role.PopulateTokenData(data)
-	delete(data, "token_bound_cidrs")
-	delete(data, "token_strictly_bind_ip")
+	for _, field := range tokenFields {
+		data[field] = all[field]
+	}
 
 	return &logical.Response{Data: data}, nil
 }
@@ -175,11 +173,8 @@ func (b *backend) writeRole(ctx context.Context, req *logical.Request, d *framew
 	}
 
 	for _, tag := range role.BoundTags {
-		if !tagPattern.MatchString(tag) {
-			return logical.ErrorResponse(
-				"bound_tags: %q is not a Tailscale tag (tag:<name>)",
-				tag,
-			), nil
+		if err := tailscaled.CheckTag(tag); err != nil {
+			return logical.ErrorResponse("bound_tags: %q: %s", tag, err), nil
 		}
 	}
 

@@ -39,7 +39,7 @@ func FuzzCheckNode(f *testing.F) {
 			return
 		}
 
-		node := &Node{Tagged: true}
+		node := &Node{Tags: []string{"tag:example-api"}}
 		if addr, err := netip.ParseAddr(own); err == nil {
 			node.Addresses = []netip.Addr{addr}
 		}

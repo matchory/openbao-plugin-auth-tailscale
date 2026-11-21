@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -67,6 +68,16 @@ func request(
 	}
 
 	return resp
+}
+
+// assertRefused fails unless a request got the one answer every refused
+// caller gets, and nothing else.
+func assertRefused(t *testing.T, resp *logical.Response, err error) {
+	t.Helper()
+
+	if !errors.Is(err, logical.ErrPermissionDenied) || resp != nil {
+		t.Errorf("got %v, %v; want no response and ErrPermissionDenied", resp, err)
+	}
 }
 
 func TestFactory(t *testing.T) {

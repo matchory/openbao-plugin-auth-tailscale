@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request replaces the run it supersedes
+concurrency:
+  group: govulncheck-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   govulncheck:
     name: govulncheck

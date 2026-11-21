@@ -24,9 +24,12 @@ const (
 	keyNodeID = "node_id"
 )
 
-var (
-	errNoConnection = errors.New("request carries no connection information")
-	errNoRole       = errors.New("no such role")
+// The backend's own reasons to refuse, beside those of package identity.
+const (
+	errNoConnection identity.Refusal = "request carries no connection information"
+	errNoRole       identity.Refusal = "no such role"
+	errNodeChanged  identity.Refusal = "address now belongs to another node"
+	errRoleChanged  identity.Refusal = "role no longer grants the token's policies"
 )
 
 func (b *backend) loginPaths() []*framework.Path {
@@ -198,7 +201,7 @@ func (b *backend) refuse(req *logical.Request, roleName string, reason error) er
 	// Who was refused for what is for debugging. That tailscaled or storage
 	// is failing is something an operator must see without asking.
 	log := b.Logger().Warn
-	if isVerdict(reason) {
+	if errors.As(reason, new(identity.Refusal)) {
 		log = b.Logger().Debug
 	}
 
@@ -206,27 +209,6 @@ func (b *backend) refuse(req *logical.Request, roleName string, reason error) er
 
 	return logical.ErrPermissionDenied
 }
-
-// isVerdict reports whether a refusal is a decision about the caller, as
-// opposed to a failure to reach a decision.
-func isVerdict(reason error) bool {
-	for _, verdict := range []error{
-		identity.ErrNotTailnet, identity.ErrUntagged, identity.ErrShared, identity.ErrExpired,
-		identity.ErrAddressMismatch, identity.ErrRoutes, identity.ErrTagMismatch,
-		errNoConnection, errNoRole, errNodeChanged, errRoleChanged,
-	} {
-		if errors.Is(reason, verdict) {
-			return true
-		}
-	}
-
-	return false
-}
-
-var (
-	errNodeChanged = errors.New("address now belongs to another node")
-	errRoleChanged = errors.New("role no longer grants the token's policies")
-)
 
 // renew extends a token only if a login from the same address would succeed
 // now, would name the node that logged in, and would grant the same policies. A tailnet address can pass to

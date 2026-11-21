@@ -3,9 +3,11 @@ package tailscaled_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync/atomic"
@@ -15,6 +17,7 @@ import (
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
 
+	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
 	"github.com/matchory/openbao-plugin-auth-tailscale/tailscaled"
 )
 
@@ -23,6 +26,14 @@ var addr = netip.MustParseAddr("100.64.0.5")
 // fakeDaemon serves the LocalAPI's whois endpoint on a Unix socket and
 // returns the socket's path.
 func fakeDaemon(t *testing.T, handler http.HandlerFunc) string {
+	t.Helper()
+
+	return fakeDaemonCounting(t, handler, nil)
+}
+
+// fakeDaemonCounting is fakeDaemon, and adds one to connections for every
+// connection a client opens.
+func fakeDaemonCounting(t *testing.T, handler http.HandlerFunc, connections *atomic.Int32) string {
 	t.Helper()
 
 	socket := filepath.Join(shortTempDir(t), "ts.sock")
@@ -35,13 +46,36 @@ func fakeDaemon(t *testing.T, handler http.HandlerFunc) string {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/localapi/v0/whois", handler)
 
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: time.Second}
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: time.Second,
+		ConnState: func(_ net.Conn, state http.ConnState) {
+			if connections != nil && state == http.StateNew {
+				connections.Add(1)
+			}
+		},
+	}
 
 	go func() { _ = server.Serve(listener) }()
 
 	t.Cleanup(func() { _ = server.Close() })
 
 	return socket
+}
+
+// shortTempDir is t.TempDir with a path short enough for a Unix socket:
+// macOS limits a socket path to 104 bytes.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("/tmp", "ts") //nolint:usetesting // path length
+	if err != nil {
+		t.Fatalf("create a temporary directory: %v", err)
+	}
+
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	return dir
 }
 
 func respond(response any) http.HandlerFunc {
@@ -108,9 +142,13 @@ func TestWhoIsConverts(t *testing.T) {
 		t.Errorf("AllowedIPs = %v, want three prefixes", node.AllowedIPs)
 	}
 
-	if !node.Tagged || node.Shared || node.Expired || !node.KeyExpiry.IsZero() {
-		t.Errorf("Tagged, Shared, Expired, KeyExpiry = %v, %v, %v, %v",
-			node.Tagged, node.Shared, node.Expired, node.KeyExpiry)
+	if node.Shared || node.Expired || !node.KeyExpiry.IsZero() {
+		t.Errorf(
+			"Shared, Expired, KeyExpiry = %v, %v, %v",
+			node.Shared,
+			node.Expired,
+			node.KeyExpiry,
+		)
 	}
 }
 
@@ -159,8 +197,8 @@ func TestWhoIsUntagged(t *testing.T) {
 		t.Fatalf("WhoIs: %v", err)
 	}
 
-	if node.Tagged {
-		t.Error("Tagged = true for a node without tags")
+	if len(node.Tags) != 0 {
+		t.Errorf("Tags = %v for a node without tags", node.Tags)
 	}
 }
 
@@ -171,9 +209,11 @@ func TestWhoIsNotFound(t *testing.T) {
 		http.Error(w, "no match for IP:port", http.StatusNotFound)
 	})
 
+	// An address nobody has is a decision about the caller, not a failure
+	// of the daemon.
 	node, err := tailscaled.New(socket).WhoIs(t.Context(), addr)
-	if err == nil || node != nil {
-		t.Errorf("WhoIs = %v, %v; want nil and an error", node, err)
+	if !errors.Is(err, identity.ErrUnknownAddress) || node != nil {
+		t.Errorf("WhoIs = %v, %v; want nil and ErrUnknownAddress", node, err)
 	}
 }
 
@@ -239,31 +279,7 @@ func TestWhoIsReusesItsConnection(t *testing.T) {
 
 	var connections atomic.Int32
 
-	socket := filepath.Join(shortTempDir(t), "ts.sock")
-
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/localapi/v0/whois", respond(whoIs(taggedNode())))
-
-	server := &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: time.Second,
-		ConnState: func(_ net.Conn, state http.ConnState) {
-			if state == http.StateNew {
-				connections.Add(1)
-			}
-		},
-	}
-
-	go func() { _ = server.Serve(listener) }()
-
-	t.Cleanup(func() { _ = server.Close() })
-
-	client := tailscaled.New(socket)
+	client := tailscaled.New(fakeDaemonCounting(t, respond(whoIs(taggedNode())), &connections))
 	for range 20 {
 		if _, err := client.WhoIs(t.Context(), addr); err != nil {
 			t.Fatalf("WhoIs: %v", err)
@@ -272,5 +288,21 @@ func TestWhoIsReusesItsConnection(t *testing.T) {
 
 	if n := connections.Load(); n != 1 {
 		t.Errorf("20 questions opened %d connections, want 1", n)
+	}
+}
+
+func TestCheckTag(t *testing.T) {
+	t.Parallel()
+
+	for _, tag := range []string{"tag:example-api", "tag:a1"} {
+		if err := tailscaled.CheckTag(tag); err != nil {
+			t.Errorf("CheckTag(%q) = %v", tag, err)
+		}
+	}
+
+	for _, tag := range []string{"example-api", "tag:", "tag:has space", "tag:1st", ""} {
+		if err := tailscaled.CheckTag(tag); err == nil {
+			t.Errorf("CheckTag(%q) accepted it", tag)
+		}
 	}
 }

@@ -7,9 +7,16 @@ on:
   push:
     branches:
       - main
+  # A release runs these checks on the tagged commit before it builds
+  workflow_call:
 
 permissions:
   contents: read
+
+# A newer push to a pull request replaces the run it supersedes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -73,13 +80,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # JUnit reports become annotations
+      # The Makefile's tests, with a JUnit report for the annotations and
+      # a coverage profile
       - name: Test
         id: go-test
         run: |
-          mkdir -p "${RUNNER_TEMP}/cover/unit" "${RUNNER_TEMP}/junit"
-          go tool gotestsum --format github-actions --junitfile "${RUNNER_TEMP}/junit/unit.xml" -- \
-            -race -cover ./... -args -test.gocoverdir="${RUNNER_TEMP}/cover/unit"
+          mkdir -p "${RUNNER_TEMP}/junit"
+          make test TESTFLAGS="-coverprofile=coverage.out" \
+            GOTESTSUM_FLAGS="--format github-actions --junitfile ${RUNNER_TEMP}/junit/unit.xml"
 
       # With the release's flags, for both architectures a release ships
       - name: Build
@@ -103,18 +111,9 @@ jobs:
         id: coverage
         if: ${{ !cancelled() }}
         run: |
-          dirs="${RUNNER_TEMP}/cover/unit"
-          go tool covdata textfmt -i="$dirs" -o coverage.out
           go tool cover -html=coverage.out -o coverage.html
           total=$(go tool cover -func=coverage.out | awk 'END { print $NF }')
-          {
-            echo "### Coverage: ${total}"
-            echo
-            echo "| Package | Statements |"
-            echo "| --- | ---: |"
-            go tool covdata percent -i="$dirs" |
-              awk '{ sub("github.com/matchory/openbao-plugin-auth-tailscale/", "", $1); print "| `" $1 "` | " $3 " |" }'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "### Coverage: ${total}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage
         id: upload-coverage

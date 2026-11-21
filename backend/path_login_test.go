@@ -56,7 +56,6 @@ func validNode() *identity.Node {
 			netip.MustParsePrefix("100.64.0.5/32"),
 			netip.MustParsePrefix("fd7a:115c:a1e0::5/128"),
 		},
-		Tagged: true,
 	}
 }
 
@@ -229,7 +228,7 @@ func TestLoginRefusals(t *testing.T) {
 			remote: "100.64.0.5",
 			role:   "api",
 			who: change(func(n *identity.Node) {
-				n.Tagged, n.Tags = false, nil
+				n.Tags = nil
 			}),
 		},
 		{
@@ -276,9 +275,7 @@ func TestLoginRefusals(t *testing.T) {
 			}
 
 			resp, err := login(b, s, tc.remote, tc.role)
-			if !errors.Is(err, logical.ErrPermissionDenied) || resp != nil {
-				t.Errorf("login = %v, %v; want no response and ErrPermissionDenied", resp, err)
-			}
+			assertRefused(t, resp, err)
 		})
 	}
 }
@@ -295,9 +292,7 @@ func TestLoginWithoutConnection(t *testing.T) {
 		Storage:   s,
 		Data:      map[string]any{"role": "api"},
 	})
-	if !errors.Is(err, logical.ErrPermissionDenied) || resp != nil {
-		t.Errorf("login = %v, %v; want no response and ErrPermissionDenied", resp, err)
-	}
+	assertRefused(t, resp, err)
 }
 
 // Guards: G6
@@ -408,29 +403,28 @@ func TestLoginUsesConfiguredSocket(t *testing.T) {
 	}
 }
 
-func TestLoginCapsTTLAtKeyExpiry(t *testing.T) {
+func TestLoginCapsLifetimesAtKeyExpiry(t *testing.T) {
 	t.Parallel()
 
-	b, s, who := loginBackend(t)
-	who.node.KeyExpiry = testNow.Add(10 * time.Minute)
+	for name, role := range map[string]map[string]any{
+		"the role's lifetimes":  nil,
+		"the mount's lifetimes": {"token_ttl": "0", "token_max_ttl": "0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	auth := mustLogin(t, b, s, "100.64.0.5")
-	if auth.TTL != 10*time.Minute || auth.MaxTTL != 10*time.Minute {
-		t.Errorf("TTL, MaxTTL = %v, %v; want 10m for both", auth.TTL, auth.MaxTTL)
-	}
-}
+			b, s, who := loginBackend(t)
+			if role != nil {
+				writeRole(t, b, s, "api", role)
+			}
 
-func TestLoginCapsMountDefaultTTLAtKeyExpiry(t *testing.T) {
-	t.Parallel()
+			who.node.KeyExpiry = testNow.Add(10 * time.Minute)
 
-	b, s, who := loginBackend(t)
-	writeRole(t, b, s, "api", map[string]any{"token_ttl": "0", "token_max_ttl": "0"})
-
-	who.node.KeyExpiry = testNow.Add(10 * time.Minute)
-
-	auth := mustLogin(t, b, s, "100.64.0.5")
-	if auth.TTL != 10*time.Minute || auth.MaxTTL != 10*time.Minute {
-		t.Errorf("TTL, MaxTTL = %v, %v; want 10m for both", auth.TTL, auth.MaxTTL)
+			auth := mustLogin(t, b, s, "100.64.0.5")
+			if auth.TTL != 10*time.Minute || auth.MaxTTL != 10*time.Minute {
+				t.Errorf("TTL, MaxTTL = %v, %v; want 10m for both", auth.TTL, auth.MaxTTL)
+			}
+		})
 	}
 }
 

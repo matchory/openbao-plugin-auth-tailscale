@@ -12,7 +12,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 
-OPENBAO_VERSION=${OPENBAO_VERSION:-2.7.2}
+OPENBAO_VERSION=${OPENBAO_VERSION:-2.7.3}
 TAILSCALE_VERSION=${TAILSCALE_VERSION:-1.104.7}
 HEADSCALE_IMAGE=docker.io/headscale/headscale:0.29.4@sha256:8833f828b414c0907b7e5c71da76473216fe17cce0818a166b536ec552c0903f
 URL=http://127.0.0.1:8080
@@ -32,7 +32,8 @@ declare -A TAILSCALE_SHA256=(
 PLUGIN=openbao-plugin-auth-tailscale
 PLUGIN_BINARY=${PLUGIN_BINARY:-$ROOT/bin/${PLUGIN}_linux_$ARCH}
 WORK=$(mktemp -d /tmp/e2e.XXXXXX)
-NODES=(server caller other person)
+# Each node's outbound HTTP proxy port, filled in as the nodes start
+declare -A PORT=()
 PIDS=()
 FAILED=0
 
@@ -45,7 +46,7 @@ fail() {
 cleanup() {
 	local status=$?
 	if ((status != 0 || FAILED != 0)); then
-		for node in "${NODES[@]}"; do
+		for node in "${!PORT[@]}"; do
 			echo "--- tailscaled ($node)"
 			tail -n 40 "$WORK/$node/log" 2>/dev/null || true
 		done
@@ -53,12 +54,12 @@ cleanup() {
 		tail -n 60 "$WORK/openbao.log" 2>/dev/null || true
 		echo "--- headscale"
 		docker logs --tail 60 e2e-headscale 2>&1 || true
-	fi
-	# E2E_PAUSE=600 keeps everything running that long after a failure, to
-	# look around; $WORK is printed above
-	if ((status != 0 || FAILED != 0)) && [[ -n ${E2E_PAUSE:-} ]]; then
-		echo "paused for ${E2E_PAUSE}s; work directory $WORK"
-		sleep "$E2E_PAUSE"
+		# E2E_PAUSE=600 keeps everything running that long after a failure,
+		# to look around
+		if [[ -n ${E2E_PAUSE:-} ]]; then
+			echo "paused for ${E2E_PAUSE}s; work directory $WORK"
+			sleep "$E2E_PAUSE"
+		fi
 	fi
 	kill "${PIDS[@]}" 2>/dev/null || true
 	docker rm -f e2e-headscale >/dev/null 2>&1 || true
@@ -122,6 +123,7 @@ ts() { "$WORK/tailscale" --socket="$WORK/$1/sock" "${@:2}"; }
 # headscale. A request sent through its HTTP proxy comes from this node.
 node() {
 	local name=$1 port=$2 user=$3 tag=${4:-}
+	PORT[$name]=$port
 	mkdir -p "$WORK/$name"
 	"$WORK/tailscaled" --tun=userspace-networking --state=mem: --statedir="$WORK/$name" \
 		--socket="$WORK/$name/sock" --port=0 --outbound-http-proxy-listen="127.0.0.1:$port" \
@@ -182,13 +184,7 @@ TCP_URL6=https://[$server6]:8200
 # call NODE ARGS...: curl through NODE's proxy, printing the response body
 # and, on the last line, the status code
 call() {
-	local node_port
-	case $1 in
-	caller) node_port=1052 ;;
-	other) node_port=1053 ;;
-	person) node_port=1054 ;;
-	esac
-	curl -sk --max-time 15 -x "http://127.0.0.1:$node_port" -w '\n%{http_code}' "${@:2}" || echo 000
+	curl -sk --max-time 15 -x "http://127.0.0.1:${PORT[$1]}" -w '\n%{http_code}' "${@:2}" || echo 000
 }
 status() { tail -n 1 <<<"$1"; }
 # refused_for REASON: yes if OpenBao's log has a refusal for REASON since the
@@ -205,8 +201,8 @@ body() { sed '$d' <<<"$1"; }
 login() { call "$1" -X POST -d "{\"role\":\"$2\"}" "${@:4}" "$3/v1/auth/tailscale/login"; }
 lookup() { call "$1" -H "X-Vault-Token: $2" "$3/v1/auth/token/lookup-self"; }
 
-retry 30 bash -c "[[ \$(curl -s -o /dev/null -w '%{http_code}' -x http://127.0.0.1:1052 '$HTTP_URL/v1/sys/health') == 200 ]]" ||
-	fail "the caller cannot reach OpenBao through the server node"
+ready() { [[ $(status "$(call caller "$HTTP_URL/v1/sys/health")") == 200 ]]; }
+retry 30 ready || fail "the caller cannot reach OpenBao through the server node"
 
 log "Logins"
 # Guards: G1, G2, G3
