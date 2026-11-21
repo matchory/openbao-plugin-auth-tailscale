@@ -48,7 +48,7 @@ func TestRenewRefusedWhenNodeChanged(t *testing.T) {
 ```
 
 The end-to-end script marks its sections the same way, with `# Guards: G2`, followed by lines that run a `check`
-before the next blank line. `TestEveryGuaranteeIsGuarded` fails when a published guarantee has no guard, when a
+before the next empty line. `TestEveryGuaranteeIsGuarded` fails when a published guarantee has no guard, when a
 guard names a guarantee that isn't published, and when a marker marks no test. A marker says which guarantee a
 test is about, not that the test covers all of it: read the tests for what each one checks. Run it with
 `-v` to list the files guarding each guarantee:
