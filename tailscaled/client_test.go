@@ -176,6 +176,7 @@ func TestWhoIsNotFound(t *testing.T) {
 	}
 }
 
+// Guards: G4
 func TestWhoIsNilNode(t *testing.T) {
 	t.Parallel()
 
@@ -185,6 +186,7 @@ func TestWhoIsNilNode(t *testing.T) {
 	}
 }
 
+// Guards: G4
 func TestWhoIsHonoursContext(t *testing.T) {
 	t.Parallel()
 

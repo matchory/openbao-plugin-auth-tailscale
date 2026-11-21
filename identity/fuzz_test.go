@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// Guards: G1
 func FuzzParseRemoteAddr(f *testing.F) {
 	for _, seed := range []string{
 		"100.64.0.5", "fd7a:115c:a1e0::5", "::ffff:100.64.0.5", "100.64.0.5:443",
@@ -25,6 +26,7 @@ func FuzzParseRemoteAddr(f *testing.F) {
 	})
 }
 
+// Guards: G1, G3
 func FuzzCheckNode(f *testing.F) {
 	f.Add("100.64.0.5", "100.64.0.5", "100.64.0.5/32")
 	f.Add("100.64.0.5", "100.64.0.9", "100.64.0.5/32")

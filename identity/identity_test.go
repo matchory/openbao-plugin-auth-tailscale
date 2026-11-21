@@ -27,6 +27,7 @@ func validNode() *Node {
 	}
 }
 
+// Guards: G1
 func TestParseRemoteAddr(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +62,7 @@ func TestParseRemoteAddr(t *testing.T) {
 	}
 }
 
+// Guards: G3
 func TestCheckNode(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +153,7 @@ func TestCheckNodeNil(t *testing.T) {
 	}
 }
 
+// Guards: G3
 func TestMatchTags(t *testing.T) {
 	t.Parallel()
 
@@ -180,6 +183,7 @@ func TestMatchTags(t *testing.T) {
 	}
 }
 
+// Guards: G2
 func TestBoundCIDRs(t *testing.T) {
 	t.Parallel()
 
