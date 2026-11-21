@@ -5,7 +5,7 @@ The plugin has four kinds of test. Each answers a different question, and CI run
 | Kind | Where | Runs | Answers |
 | --- | --- | --- | --- |
 | Unit | `*_test.go` in each package | `make test`, on every push | Does each rule, path and conversion behave as specified? |
-| Fuzz | `identity/fuzz_test.go` | weekly, 10 minutes per target | Does any input make an address or node rule accept what it must refuse, or crash? |
+| Fuzz | `identity/fuzz_test.go`, `tailscaled/fuzz_test.go` | weekly, 10 minutes per target | Does any input, or any answer from `tailscaled`, make the rules accept what they must refuse, or crash? |
 | Guarantee check | `security_test.go` | `make test`, on every push | Does every guarantee in `SECURITY.md` have a test that proves it? |
 | End-to-end | `test/integration/run.sh` | `make e2e`, on every pull request | Does a login work, and fail, as it should with real components? |
 
@@ -26,11 +26,16 @@ caller would.
 ```bash
 go test -run='^$' -fuzz='^FuzzParseRemoteAddr$' -fuzztime=30s ./identity/
 go test -run='^$' -fuzz='^FuzzCheckNode$' -fuzztime=30s ./identity/
+go test -run='^$' -fuzz='^FuzzWhoIsAnswer$' -fuzztime=30s ./tailscaled/
 ```
 
 Each target states what must hold for any input: an accepted address is inside Tailscale's ranges, and an
-accepted node owns the address and may send from nothing else. A failing input is saved under
-`identity/testdata/fuzz/`; commit it with the fix, and it becomes a regression test.
+accepted node owns the address and may send from nothing else. `FuzzWhoIsAnswer` starts from the JSON
+`tailscaled` sends and checks an accepted node against that JSON, so it also catches a field the conversion drops.
+
+A failing input is saved under the package's `testdata/fuzz/`; commit it with the fix, and it becomes a regression
+test. The weekly run keeps its corpus in the Actions cache from one run to the next, and opens an issue when it
+finds a failing input.
 
 ## Security model
 

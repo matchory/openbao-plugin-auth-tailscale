@@ -12,12 +12,17 @@ jobs:
   fuzz:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Open an issue when a scheduled run finds a failing input
+      issues: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - { package: ./identity, target: FuzzParseRemoteAddr }
           - { package: ./identity, target: FuzzCheckNode }
+          - { package: ./tailscaled, target: FuzzWhoIsAnswer }
 
     steps:
       - name: Checkout
@@ -31,6 +36,20 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
         with:
           go-version-file: go.mod
+
+      # The inputs earlier runs found interesting, so a run continues where
+      # the last one stopped instead of starting from the seeds
+      - name: Locate the corpus
+        id: corpus
+        run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the corpus
+        id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.corpus.outputs.dir }}
+          key: fuzz-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-${{ matrix.target }}-
 
       # Go writes a failing input to the package's testdata/fuzz/<target>
       - name: Fuzz
@@ -47,3 +66,16 @@ jobs:
         with:
           name: fuzz-${{ matrix.target }}
           path: ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}
+
+      # An artifact nobody looks at is no finding
+      - name: Open an issue
+        id: issue
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --title "Fuzzing found a failing input for ${TARGET}" \
+            --body "The weekly run failed: ${RUN_URL}. The input is in the artifact fuzz-${TARGET}."
