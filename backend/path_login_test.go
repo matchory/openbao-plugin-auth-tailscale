@@ -425,7 +425,7 @@ func TestLoginUsesConfiguredSocket(t *testing.T) {
 
 	var socket string
 
-	b.newWhoIser = func(path string) identity.WhoIser {
+	b.newWhoIser = func(path string) whoIser {
 		socket = path
 
 		return who
@@ -514,7 +514,7 @@ func TestLoginReusesTheTailscaledClient(t *testing.T) {
 
 	var sockets []string
 
-	b.newWhoIser = func(socket string) identity.WhoIser {
+	b.newWhoIser = func(socket string) whoIser {
 		sockets = append(sockets, socket)
 
 		return who

@@ -225,6 +225,30 @@ func TestBoundCIDRs(t *testing.T) {
 	}
 }
 
+// Guards: G5
+func TestCheckSameNode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		issuedTo string
+		want     error
+	}{
+		{name: "the node that logged in", issuedTo: "nTEST1"},
+		{name: "another node at the address", issuedTo: "nOTHER", want: ErrNodeChanged},
+		{name: "a token that names no node", issuedTo: "", want: ErrNodeChanged},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := CheckSameNode(validNode(), tc.issuedTo); !errors.Is(err, tc.want) {
+				t.Errorf("CheckSameNode() = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestCapTTL(t *testing.T) {
 	t.Parallel()
 
@@ -252,12 +276,12 @@ func TestCapTTL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			n := validNode()
+			var keyExpiry time.Time
 			if tc.expiry != 0 {
-				n.KeyExpiry = now.Add(tc.expiry)
+				keyExpiry = now.Add(tc.expiry)
 			}
 
-			if got := CapTTL(tc.ttl, n, now); got != tc.want {
+			if got := CapTTL(tc.ttl, keyExpiry, now); got != tc.want {
 				t.Errorf("CapTTL() = %v, want %v", got, tc.want)
 			}
 		})

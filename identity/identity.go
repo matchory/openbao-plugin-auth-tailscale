@@ -5,7 +5,6 @@
 package identity
 
 import (
-	"context"
 	"errors"
 	"net/netip"
 	"slices"
@@ -32,9 +31,10 @@ const (
 	ErrRoutes          Refusal = "node routes for other addresses"
 	ErrNotAllowed      Refusal = "node may not send from this address"
 	ErrTagMismatch     Refusal = "node lacks a bound tag"
+	ErrNodeChanged     Refusal = "address now belongs to another node"
 )
 
-var errNoNode = errors.New("no node")
+var errNilNode = errors.New("no node")
 
 // The ranges Tailscale assigns node and Service addresses from.
 var (
@@ -47,7 +47,8 @@ type Node struct {
 	// StableID identifies the node for as long as it exists. A tailnet
 	// address can pass to another node; a stable ID cannot.
 	StableID string
-	Name     string
+	// Name is the node's MagicDNS name, for the token's metadata only.
+	Name string
 	// Tags is empty for a node that belongs to a person.
 	Tags []string
 	// Addresses are the node's own tailnet addresses.
@@ -57,21 +58,10 @@ type Node struct {
 	AllowedIPs []netip.Prefix
 	// KeyExpiry is the zero time when the node key does not expire.
 	KeyExpiry time.Time
-	Expired   bool
+	// Expired is the control server's own verdict that the key has expired.
+	Expired bool
 	// Shared is true for a node shared in from another tailnet.
 	Shared bool
-}
-
-// WhoIser finds the node that owns a tailnet address.
-type WhoIser interface {
-	// WhoIs returns the node that owns addr, ErrUnknownAddress when no
-	// node does, or another error when it cannot tell. It never returns a
-	// nil node without an error.
-	WhoIs(ctx context.Context, addr netip.Addr) (*Node, error)
-	// Self returns the stable ID of the node tailscaled itself runs as. It
-	// returns an error when tailscaled is not connected to its tailnet,
-	// and never an empty ID without one.
-	Self(ctx context.Context) (string, error)
 }
 
 // ParseRemoteAddr parses the source address of a request. It returns
@@ -96,7 +86,7 @@ func ParseRemoteAddr(s string) (netip.Addr, error) {
 func CheckNode(n *Node, self string, remote netip.Addr, now time.Time) error {
 	switch {
 	case n == nil:
-		return errNoNode
+		return errNilNode
 	// Any local process on the OpenBao host reaches OpenBao from the host's
 	// own address, so it would log in as the host.
 	case n.StableID == self:
@@ -155,14 +145,26 @@ func BoundCIDRs(n *Node) []netip.Prefix {
 	return cidrs
 }
 
-// CapTTL returns ttl, or the time the node key has left counted from start
-// if that is shorter. A key that does not expire caps nothing.
-func CapTTL(ttl time.Duration, n *Node, start time.Time) time.Duration {
-	if n.KeyExpiry.IsZero() {
+// CheckSameNode returns ErrNodeChanged unless n is the node with the stable
+// ID issuedTo. A tailnet address can pass to another node; a stable ID
+// cannot.
+func CheckSameNode(n *Node, issuedTo string) error {
+	if issuedTo == "" || n.StableID != issuedTo {
+		return ErrNodeChanged
+	}
+
+	return nil
+}
+
+// CapTTL returns ttl, or the time left until keyExpiry counted from start if
+// that is shorter. The zero keyExpiry, a key that does not expire, caps
+// nothing.
+func CapTTL(ttl time.Duration, keyExpiry, start time.Time) time.Duration {
+	if keyExpiry.IsZero() {
 		return ttl
 	}
 
-	return min(ttl, n.KeyExpiry.Sub(start))
+	return min(ttl, keyExpiry.Sub(start))
 }
 
 func isTailnet(addr netip.Addr) bool {

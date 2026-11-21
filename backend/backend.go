@@ -6,6 +6,7 @@ package backend
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -32,14 +33,21 @@ type backend struct {
 	*framework.Backend
 
 	// Both are replaced in tests.
-	newWhoIser func(socket string) identity.WhoIser
+	newWhoIser func(socket string) whoIser
 	now        func() time.Time
 
 	// The client for tailscaled is kept: each one holds a connection open,
 	// in this process and in tailscaled, for as long as it exists.
 	clientMu     sync.Mutex
-	client       identity.WhoIser
+	client       whoIser
 	clientSocket string
+}
+
+// whoIser is what the backend asks tailscaled; *tailscaled.Client is the
+// one it uses outside tests. See there for what each method promises.
+type whoIser interface {
+	WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, error)
+	Self(ctx context.Context) (string, error)
 }
 
 // Factory returns the backend, set up with conf. OpenBao calls it once per
@@ -55,7 +63,7 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 
 func newBackend() *backend {
 	b := &backend{
-		newWhoIser: tailscaled.New,
+		newWhoIser: func(socket string) whoIser { return tailscaled.New(socket) },
 		now:        time.Now,
 	}
 
@@ -79,7 +87,7 @@ func newBackend() *backend {
 
 // whoIser returns the client for the tailscaled behind socket, making a new
 // one only when the configured socket has changed.
-func (b *backend) whoIser(socket string) identity.WhoIser {
+func (b *backend) whoIser(socket string) whoIser {
 	b.clientMu.Lock()
 	defer b.clientMu.Unlock()
 

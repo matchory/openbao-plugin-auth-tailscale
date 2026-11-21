@@ -9,15 +9,13 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/openbao/openbao/sdk/v2/logical"
-
-	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
 )
 
 var testNow = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 
 // testBackend returns a backend whose tailscaled is w and whose clock stands
 // still at testNow, with empty in-memory storage.
-func testBackend(t *testing.T, w identity.WhoIser) (*backend, logical.Storage) {
+func testBackend(t *testing.T, w whoIser) (*backend, logical.Storage) {
 	t.Helper()
 
 	b, s, _ := testBackendWithLog(t, w)
@@ -28,7 +26,7 @@ func testBackend(t *testing.T, w identity.WhoIser) (*backend, logical.Storage) {
 // testBackendWithLog is testBackend, and also returns what the backend logs.
 func testBackendWithLog(
 	t *testing.T,
-	w identity.WhoIser,
+	w whoIser,
 ) (*backend, logical.Storage, *bytes.Buffer) {
 	t.Helper()
 
@@ -38,7 +36,7 @@ func testBackendWithLog(
 	conf.Logger = hclog.New(&hclog.LoggerOptions{Output: log, Level: hclog.Debug})
 
 	b := newBackend()
-	b.newWhoIser = func(string) identity.WhoIser { return w }
+	b.newWhoIser = func(string) whoIser { return w }
 	b.now = func() time.Time { return testNow }
 
 	if err := b.Setup(t.Context(), conf); err != nil {

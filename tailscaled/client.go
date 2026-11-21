@@ -20,14 +20,16 @@ var (
 	errNoSelf = errors.New("tailscaled named no node of its own")
 )
 
-type client struct {
+// Client asks one tailscaled about nodes. It keeps its connection to the
+// daemon open between questions.
+type Client struct {
 	local *local.Client
 }
 
-// New returns a WhoIser that asks the tailscaled behind socket. An empty
-// socket means the platform's default.
-func New(socket string) identity.WhoIser {
-	return &client{local: &local.Client{
+// New returns a Client for the tailscaled behind socket. An empty socket
+// means the platform's default.
+func New(socket string) *Client {
+	return &Client{local: &local.Client{
 		Socket: socket,
 		// Without it the library also looks for a daemon by other means
 		// than the socket it was given.
@@ -35,7 +37,10 @@ func New(socket string) identity.WhoIser {
 	}}
 }
 
-func (c *client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, error) {
+// WhoIs returns the node that owns addr, identity.ErrUnknownAddress when no
+// node does, or another error when it cannot tell. It never returns a nil
+// node without an error.
+func (c *Client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, error) {
 	who, err := c.local.WhoIs(ctx, addr.String())
 	if errors.Is(err, local.ErrPeerNotFound) {
 		return nil, identity.ErrUnknownAddress
@@ -52,10 +57,12 @@ func (c *client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, er
 	return convert(who.Node), nil
 }
 
-// Self asks tailscaled for its own state. A daemon that is logged out,
-// stopped or still starting answers every WhoIs with "no such node", so its
-// state is what tells that apart from a caller no tailnet knows.
-func (c *client) Self(ctx context.Context) (string, error) {
+// Self returns the stable ID of the node tailscaled runs as, or an error when
+// tailscaled is not connected to its tailnet. It never returns an empty ID
+// without an error. A daemon that is logged out, stopped or still starting
+// answers every WhoIs with "no such node", so its state is what tells that
+// apart from a caller no tailnet knows.
+func (c *Client) Self(ctx context.Context) (string, error) {
 	st, err := c.local.StatusWithoutPeers(ctx)
 	if err != nil {
 		return "", fmt.Errorf("status: %w", err)

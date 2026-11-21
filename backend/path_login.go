@@ -26,11 +26,13 @@ const (
 
 // The backend's own reasons to refuse, beside those of package identity.
 const (
-	errNoConnection identity.Refusal = "request carries no connection information"
-	errNoRole       identity.Refusal = "no such role"
-	errNodeChanged  identity.Refusal = "address now belongs to another node"
-	errRoleChanged  identity.Refusal = "role no longer grants the token's policies"
+	errNoRole      identity.Refusal = "no such role"
+	errRoleChanged identity.Refusal = "role no longer grants the token's policies"
 )
+
+// A request without connection information did not come through a
+// listener: no decision about a caller, but a deployment to look at.
+var errNoConnection = errors.New("request carries no connection information")
 
 func (b *backend) loginPaths() []*framework.Path {
 	return []*framework.Path{{
@@ -187,16 +189,16 @@ func (b *backend) login(ctx context.Context, req *logical.Request, d *framework.
 		})
 	}
 
-	b.capLifetimes(auth, att, att.at)
+	b.capLifetimes(auth, att.node.KeyExpiry, att.at, att.at)
 
 	return &logical.Response{Auth: auth}, nil
 }
 
-// capLifetimes shortens a token's lifetimes so it ends no later than the
-// node key. OpenBao counts the maximum from when the token was issued and the
-// others from now.
-func (b *backend) capLifetimes(auth *logical.Auth, att *attestation, issued time.Time) {
-	if att.node.KeyExpiry.IsZero() {
+// capLifetimes shortens a token's lifetimes so it ends no later than
+// keyExpiry. OpenBao counts the maximum from when the token was issued and
+// the others from now.
+func (b *backend) capLifetimes(auth *logical.Auth, keyExpiry, now, issued time.Time) {
+	if keyExpiry.IsZero() {
 		return
 	}
 
@@ -210,11 +212,11 @@ func (b *backend) capLifetimes(auth *logical.Auth, att *attestation, issued time
 		auth.MaxTTL = b.System().MaxLeaseTTL()
 	}
 
-	auth.TTL = identity.CapTTL(auth.TTL, att.node, att.at)
-	auth.MaxTTL = identity.CapTTL(auth.MaxTTL, att.node, issued)
+	auth.TTL = identity.CapTTL(auth.TTL, keyExpiry, now)
+	auth.MaxTTL = identity.CapTTL(auth.MaxTTL, keyExpiry, issued)
 
 	if auth.Period != 0 {
-		auth.Period = identity.CapTTL(auth.Period, att.node, att.at)
+		auth.Period = identity.CapTTL(auth.Period, keyExpiry, now)
 	}
 }
 
@@ -254,8 +256,8 @@ func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.
 		return nil, b.refuse(req, roleName, err)
 	}
 
-	if nodeID == "" || att.node.StableID != nodeID {
-		return nil, b.refuse(req, roleName, errNodeChanged)
+	if err := identity.CheckSameNode(att.node, nodeID); err != nil {
+		return nil, b.refuse(req, roleName, err)
 	}
 
 	// A token keeps the policies it was issued with, so one whose role
@@ -274,7 +276,7 @@ func (b *backend) renew(ctx context.Context, req *logical.Request, _ *framework.
 		issued = att.at
 	}
 
-	b.capLifetimes(auth, att, issued)
+	b.capLifetimes(auth, att.node.KeyExpiry, att.at, issued)
 
 	return &logical.Response{Auth: auth}, nil
 }
