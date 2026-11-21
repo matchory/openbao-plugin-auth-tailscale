@@ -27,8 +27,10 @@ const (
 	ErrUntagged        Refusal = "node has no tags"
 	ErrShared          Refusal = "node is shared in from another tailnet"
 	ErrExpired         Refusal = "node key has expired"
+	ErrSelf            Refusal = "node is the one tailscaled runs as"
 	ErrAddressMismatch Refusal = "address is not one of the node's own"
 	ErrRoutes          Refusal = "node routes for other addresses"
+	ErrNotAllowed      Refusal = "node may not send from this address"
 	ErrTagMismatch     Refusal = "node lacks a bound tag"
 )
 
@@ -66,6 +68,10 @@ type WhoIser interface {
 	// node does, or another error when it cannot tell. It never returns a
 	// nil node without an error.
 	WhoIs(ctx context.Context, addr netip.Addr) (*Node, error)
+	// Self returns the stable ID of the node tailscaled itself runs as. It
+	// returns an error when tailscaled is not connected to its tailnet,
+	// and never an empty ID without one.
+	Self(ctx context.Context) (string, error)
 }
 
 // ParseRemoteAddr parses the source address of a request. It returns
@@ -85,11 +91,16 @@ func ParseRemoteAddr(s string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// CheckNode reports why the node behind remote may not log in, or nil.
-func CheckNode(n *Node, remote netip.Addr, now time.Time) error {
+// CheckNode reports why the node behind remote may not log in, or nil. self
+// is the stable ID of the node tailscaled runs as.
+func CheckNode(n *Node, self string, remote netip.Addr, now time.Time) error {
 	switch {
 	case n == nil:
 		return errNoNode
+	// Any local process on the OpenBao host reaches OpenBao from the host's
+	// own address, so it would log in as the host.
+	case n.StableID == self:
+		return ErrSelf
 	case len(n.Tags) == 0:
 		return ErrUntagged
 	case n.Shared:
@@ -106,6 +117,12 @@ func CheckNode(n *Node, remote netip.Addr, now time.Time) error {
 		if !p.IsSingleIP() || !isTailnet(p.Addr()) {
 			return ErrRoutes
 		}
+	}
+
+	// A node is accepted only for an address tailscaled says it may send
+	// from, so a missing or empty list refuses rather than passes.
+	if !slices.Contains(n.AllowedIPs, netip.PrefixFrom(remote, remote.BitLen())) {
+		return ErrNotAllowed
 	}
 
 	return nil

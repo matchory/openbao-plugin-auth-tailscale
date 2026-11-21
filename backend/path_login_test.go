@@ -17,10 +17,13 @@ import (
 )
 
 // fakeWhoIser answers every question with node or err and records what it
-// was asked.
+// was asked. It runs as the node self, or fails with selfErr as a daemon
+// that is not connected does.
 type fakeWhoIser struct {
-	node *identity.Node
-	err  error
+	node    *identity.Node
+	err     error
+	self    string
+	selfErr error
 	// block makes WhoIs wait for its context to end, as a hung daemon would.
 	block bool
 
@@ -41,6 +44,20 @@ func (f *fakeWhoIser) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Nod
 	}
 
 	return f.node, f.err
+}
+
+func (f *fakeWhoIser) Self(context.Context) (string, error) {
+	if f.selfErr != nil {
+		return "", f.selfErr
+	}
+
+	return f.self, nil
+}
+
+// newFakeWhoIser returns a tailscaled that runs as its own node and answers
+// with the valid node.
+func newFakeWhoIser() *fakeWhoIser {
+	return &fakeWhoIser{node: validNode(), self: "nSELF"}
 }
 
 func validNode() *identity.Node {
@@ -64,7 +81,7 @@ func validNode() *identity.Node {
 func loginBackend(t *testing.T) (*backend, logical.Storage, *fakeWhoIser) {
 	t.Helper()
 
-	who := &fakeWhoIser{node: validNode()}
+	who := newFakeWhoIser()
 	b, s := testBackend(t, who)
 
 	resp := writeRole(t, b, s, "api", map[string]any{
@@ -215,6 +232,25 @@ func TestLoginRefusals(t *testing.T) {
 		{name: "tailscaled fails", remote: "100.64.0.5", role: "api", who: func(w *fakeWhoIser) {
 			w.node, w.err = nil, errors.New("no match")
 		}},
+		{name: "unknown address", remote: "100.64.0.5", role: "api", who: func(w *fakeWhoIser) {
+			w.node, w.err = nil, identity.ErrUnknownAddress
+		}},
+		{
+			name:   "tailscaled not connected",
+			remote: "100.64.0.5",
+			role:   "api",
+			who: func(w *fakeWhoIser) {
+				w.selfErr = errors.New("tailscaled is Stopped, not Running")
+			},
+		},
+		{
+			name:   "tailscaled's own node",
+			remote: "100.64.0.5",
+			role:   "api",
+			who: change(func(n *identity.Node) {
+				n.StableID = "nSELF"
+			}),
+		},
 		{
 			name:   "tailscaled names no node",
 			remote: "100.64.0.5",
@@ -506,7 +542,7 @@ func TestLoginReusesTheTailscaledClient(t *testing.T) {
 func TestRefusalLogLevels(t *testing.T) {
 	t.Parallel()
 
-	who := &fakeWhoIser{node: validNode()}
+	who := newFakeWhoIser()
 	b, s, log := testBackendWithLog(t, who)
 	writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-worker"}})
 
@@ -530,5 +566,32 @@ func TestRefusalLogLevels(t *testing.T) {
 	if !strings.Contains(log.String(), "[WARN]") ||
 		!strings.Contains(log.String(), "connection refused") {
 		t.Errorf("a failing tailscaled is not logged as a warning:\n%s", log)
+	}
+
+	// A daemon that is not connected answers every WhoIs with "no such
+	// node"; that every login fails must not hide in the debug log.
+	for _, tc := range []struct {
+		selfErr error
+		want    string
+	}{
+		{selfErr: nil, want: "[DEBUG] refused"},
+		{selfErr: errors.New("tailscaled is Stopped, not Running"), want: "[WARN]"},
+	} {
+		log.Reset()
+
+		who.node, who.err, who.selfErr = nil, identity.ErrUnknownAddress, tc.selfErr
+
+		if _, err := login(b, s, "100.64.0.5", "api"); err == nil {
+			t.Fatal("login from an unknown address succeeded")
+		}
+
+		if !strings.Contains(log.String(), tc.want) {
+			t.Errorf(
+				"unknown address, tailscaled state %v: log lacks %q:\n%s",
+				tc.selfErr,
+				tc.want,
+				log,
+			)
+		}
 	}
 }

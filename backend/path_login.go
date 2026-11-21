@@ -88,13 +88,26 @@ func (b *backend) attest(
 
 	// tailscaled is asked before the role is looked up: a refusal then
 	// takes as long for a role that exists as for one that does not.
-	node, err := b.whoIser(cfg.Socket).WhoIs(whoIsCtx, remote)
+	who := b.whoIser(cfg.Socket)
+
+	node, err := who.WhoIs(whoIsCtx, remote)
+	if err != nil && !errors.Is(err, identity.ErrUnknownAddress) {
+		return nil, fmt.Errorf("ask tailscaled: %w", err)
+	}
+
+	// Asked even for an unknown address: a daemon that is not connected
+	// knows no address, and that is the operator's problem to see.
+	self, selfErr := who.Self(whoIsCtx)
+	if selfErr != nil {
+		return nil, fmt.Errorf("ask tailscaled: %w", selfErr)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("ask tailscaled: %w", err)
 	}
 
 	now := b.now()
-	if err := identity.CheckNode(node, remote, now); err != nil {
+	if err := identity.CheckNode(node, self, remote, now); err != nil {
 		return nil, fmt.Errorf("node at %s: %w", remote, err)
 	}
 

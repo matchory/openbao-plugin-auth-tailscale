@@ -9,12 +9,16 @@ import (
 	"net/netip"
 
 	"tailscale.com/client/local"
+	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
 
 	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
 )
 
-var errNoNode = errors.New("tailscaled named no node")
+var (
+	errNoNode = errors.New("tailscaled named no node")
+	errNoSelf = errors.New("tailscaled named no node of its own")
+)
 
 type client struct {
 	local *local.Client
@@ -46,6 +50,26 @@ func (c *client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, er
 	}
 
 	return convert(who.Node), nil
+}
+
+// Self asks tailscaled for its own state. A daemon that is logged out,
+// stopped or still starting answers every WhoIs with "no such node", so its
+// state is what tells that apart from a caller no tailnet knows.
+func (c *client) Self(ctx context.Context) (string, error) {
+	st, err := c.local.StatusWithoutPeers(ctx)
+	if err != nil {
+		return "", fmt.Errorf("status: %w", err)
+	}
+
+	if st.BackendState != ipn.Running.String() {
+		return "", fmt.Errorf("tailscaled is %s, not %s", st.BackendState, ipn.Running)
+	}
+
+	if st.Self == nil || st.Self.ID == "" {
+		return "", errNoSelf
+	}
+
+	return string(st.Self.ID), nil
 }
 
 func convert(n *tailcfg.Node) *identity.Node {

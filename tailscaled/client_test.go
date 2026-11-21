@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 
 	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
@@ -36,6 +37,19 @@ func fakeDaemon(t *testing.T, handler http.HandlerFunc) string {
 func fakeDaemonCounting(t *testing.T, handler http.HandlerFunc, connections *atomic.Int32) string {
 	t.Helper()
 
+	return serveLocalAPI(t, "/localapi/v0/whois", handler, connections)
+}
+
+// serveLocalAPI serves handler at path on a Unix socket and returns the
+// socket's path.
+func serveLocalAPI(
+	t *testing.T,
+	path string,
+	handler http.HandlerFunc,
+	connections *atomic.Int32,
+) string {
+	t.Helper()
+
 	socket := filepath.Join(shortTempDir(t), "ts.sock")
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socket)
@@ -44,7 +58,7 @@ func fakeDaemonCounting(t *testing.T, handler http.HandlerFunc, connections *ato
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/localapi/v0/whois", handler)
+	mux.HandleFunc(path, handler)
 
 	server := &http.Server{
 		Handler:           mux,
@@ -304,5 +318,73 @@ func TestCheckTag(t *testing.T) {
 		if err := tailscaled.CheckTag(tag); err == nil {
 			t.Errorf("CheckTag(%q) accepted it", tag)
 		}
+	}
+}
+
+func TestSelf(t *testing.T) {
+	t.Parallel()
+
+	running := &ipnstate.Status{
+		BackendState: "Running",
+		Self:         &ipnstate.PeerStatus{ID: "nSELF"},
+	}
+
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{name: "running", handler: respond(running), want: "nSELF"},
+		{name: "stopped", handler: respond(&ipnstate.Status{
+			BackendState: "Stopped",
+			Self:         &ipnstate.PeerStatus{ID: "nSELF"},
+		})},
+		{name: "needs login", handler: respond(&ipnstate.Status{BackendState: "NeedsLogin"})},
+		{
+			name:    "running without a node",
+			handler: respond(&ipnstate.Status{BackendState: "Running"}),
+		},
+		{name: "running with an empty ID", handler: respond(&ipnstate.Status{
+			BackendState: "Running",
+			Self:         &ipnstate.PeerStatus{},
+		})},
+		{name: "daemon fails", handler: func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var query string
+
+			socket := serveLocalAPI(
+				t,
+				"/localapi/v0/status",
+				func(w http.ResponseWriter, r *http.Request) {
+					query = r.URL.RawQuery
+					tc.handler(w, r)
+				},
+				nil,
+			)
+
+			id, err := tailscaled.New(socket).Self(t.Context())
+			if tc.want == "" {
+				if err == nil || id != "" {
+					t.Errorf("Self() = %q, %v; want an error", id, err)
+				}
+
+				return
+			}
+
+			if err != nil || id != tc.want {
+				t.Errorf("Self() = %q, %v; want %q", id, err, tc.want)
+			}
+
+			// The peer list can be large, and nothing in it is needed.
+			if query != "peers=false" {
+				t.Errorf("asked for status with %q, want peers=false", query)
+			}
+		})
 	}
 }

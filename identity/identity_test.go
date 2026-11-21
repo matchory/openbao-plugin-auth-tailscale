@@ -10,6 +10,9 @@ import (
 
 var now = time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 
+// self is the stable ID of the node tailscaled runs as in these tests.
+const self = "nSELF"
+
 func validNode() *Node {
 	return &Node{
 		StableID: "nTEST1",
@@ -113,6 +116,26 @@ func TestCheckNode(t *testing.T) {
 			remote: v4,
 		},
 		{name: "subnet router", change: allow("10.0.0.0/24"), remote: v4, want: ErrRoutes},
+		{
+			name:   "no allowed addresses",
+			change: func(n *Node) { n.AllowedIPs = nil },
+			remote: v4,
+			want:   ErrNotAllowed,
+		},
+		{
+			name: "may not send from the remote address",
+			change: func(n *Node) {
+				n.AllowedIPs = []netip.Prefix{netip.MustParsePrefix("fd7a:115c:a1e0::5/128")}
+			},
+			remote: v4,
+			want:   ErrNotAllowed,
+		},
+		{
+			name:   "tailscaled's own node",
+			change: func(n *Node) { n.StableID = self },
+			remote: v4,
+			want:   ErrSelf,
+		},
 		{name: "exit node", change: allow("0.0.0.0/0"), remote: v4, want: ErrRoutes},
 		{name: "IPv6 exit node", change: allow("::/0"), remote: v4, want: ErrRoutes},
 		{
@@ -137,7 +160,7 @@ func TestCheckNode(t *testing.T) {
 				tc.change(n)
 			}
 
-			if err := CheckNode(n, tc.remote, now); !errors.Is(err, tc.want) {
+			if err := CheckNode(n, self, tc.remote, now); !errors.Is(err, tc.want) {
 				t.Errorf("CheckNode() = %v, want %v", err, tc.want)
 			}
 		})
@@ -147,7 +170,7 @@ func TestCheckNode(t *testing.T) {
 func TestCheckNodeNil(t *testing.T) {
 	t.Parallel()
 
-	if err := CheckNode(nil, netip.MustParseAddr("100.64.0.5"), now); err == nil {
+	if err := CheckNode(nil, self, netip.MustParseAddr("100.64.0.5"), now); err == nil {
 		t.Error("CheckNode(nil) = nil, want an error")
 	}
 }
