@@ -151,7 +151,7 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 mkdir "$WORK/plugins"
 cp "$PLUGIN_BINARY" "$WORK/plugins/$PLUGIN"
 sed "s|@WORK@|$WORK|g" "$HERE/openbao.hcl" >"$WORK/openbao.hcl"
-"$WORK/bao" server -config="$WORK/openbao.hcl" >"$WORK/openbao.log" 2>&1 &
+"$WORK/bao" server -config="$WORK/openbao.hcl" -log-level=debug >"$WORK/openbao.log" 2>&1 &
 PIDS+=($!)
 export VAULT_ADDR=http://127.0.0.1:18210
 bao() { "$WORK/bao" "$@"; }
@@ -213,6 +213,11 @@ check "an IPv6 login names the caller's IPv6 address" "$caller6" "$(body "$r" | 
 check "login for a role bound to another tag" 403 "$(status "$(login caller server-only "$HTTP_URL")")"
 check "login for a role that does not exist" 403 "$(status "$(login caller nope "$HTTP_URL")")"
 check "login from a node without tags" 403 "$(status "$(login person caller "$HTTP_URL")")"
+# Guards: G6
+check "the refused caller is told nothing more" '["permission denied"]' \
+	"$(body "$(login person caller "$HTTP_URL")" | jq -c .errors)"
+check "the reason is in OpenBao's debug log" yes \
+	"$(grep -q 'refused:.*reason=.*node has no tags' "$WORK/openbao.log" && echo yes || echo no)"
 
 r=$(login caller caller "$HTTP_URL" -H 'X-Forwarded-For: 100.64.0.99')
 check "login with a forged X-Forwarded-For" 200 "$(status "$r")"
