@@ -81,6 +81,13 @@ jobs:
           go tool gotestsum --format github-actions --junitfile "${RUNNER_TEMP}/junit/unit.xml" -- \
             -race -cover ./... -args -test.gocoverdir="${RUNNER_TEMP}/cover/unit"
 
+      # With the release's flags, for both architectures a release ships
+      - name: Build
+        id: build
+        run: |
+          make build GOARCH=amd64
+          make build GOARCH=arm64
+
       - name: Report test results
         id: junit
         if: ${{ !cancelled() }}
