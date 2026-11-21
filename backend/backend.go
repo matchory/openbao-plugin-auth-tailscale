@@ -57,6 +57,7 @@ func newBackend() *backend {
 		Paths: framework.PathAppend(
 			b.configPaths(),
 			b.rolePaths(),
+			b.loginPaths(),
 		),
 	}
 
