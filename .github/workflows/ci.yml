@@ -63,6 +63,29 @@ jobs:
           sarif_file: golangci-lint.sarif
           category: golangci-lint
 
+  # Fails on a reachable vulnerability, which the SARIF run in
+  # govulncheck.yml only reports. A release needs this job to pass.
+  vuln:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run govulncheck
+        id: govulncheck
+        run: make vuln
+
   test:
     name: Go Tests
     runs-on: ubuntu-latest
@@ -89,12 +112,19 @@ jobs:
           make test TESTFLAGS="-coverprofile=coverage.out" \
             GOTESTSUM_FLAGS="--format github-actions --junitfile ${RUNNER_TEMP}/junit/unit.xml"
 
-      # With the release's flags, for both architectures a release ships
+      # With the release's flags, for both architectures a release ships.
+      # A renamed version variable makes -X do nothing, silently.
       - name: Build
         id: build
         run: |
-          make build GOARCH=amd64
-          make build GOARCH=arm64
+          make build GOARCH=amd64 VERSION=v0.0.0-stamp-check
+          make build GOARCH=arm64 VERSION=v0.0.0-stamp-check
+          for binary in bin/openbao-plugin-auth-tailscale_linux_*; do
+            if ! grep -q --binary-files=text v0.0.0-stamp-check "$binary"; then
+              echo "::error::${binary} does not carry the version it was built as"
+              exit 1
+            fi
+          done
 
       - name: Report test results
         id: junit

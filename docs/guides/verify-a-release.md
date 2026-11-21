@@ -14,7 +14,8 @@ Download the binary and `SHA256SUMS` from the
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-It prints `OK` for the binary you downloaded.
+It prints `OK` for the binary you downloaded. That shows the download is complete, not who built it: `SHA256SUMS`
+is not attested. The next check is the one that ties the binary to this repository.
 
 ## Check where it was built
 
@@ -30,15 +31,17 @@ that was changed after the build, or built anywhere else, fails this check.
 
 ## Build it yourself
 
-Releases are reproducible. With the Go toolchain `go.mod` names, the same tag gives the same bytes:
+Releases are reproducible. With the Go toolchain `go.mod` names, the same tag gives the same bytes. The `go` line
+is only a minimum, so set `GOTOOLCHAIN` to that version, or a newer Go builds different bytes:
 
 ```bash
 git checkout v0.1.0
-make build GOARCH=amd64 VERSION=v0.1.0
+GOTOOLCHAIN=go$(awk '/^go / { print $2 }' go.mod) make build GOARCH=amd64 VERSION=v0.1.0
 sha256sum bin/openbao-plugin-auth-tailscale_linux_amd64
 ```
 
-The checksum equals the one in `SHA256SUMS`.
+The checksum equals the one in `SHA256SUMS`. The release workflow checks the same: it builds the tag a second time,
+on an arm64 runner, and doesn't publish if the checksums differ.
 
 ## Register what you checked
 

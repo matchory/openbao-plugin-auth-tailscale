@@ -31,9 +31,46 @@ jobs:
     permissions:
       contents: read
 
+  # The same build on another machine and host architecture: what is
+  # published must be what anyone gets from the tag.
+  reproduce:
+    name: Reproduce the build
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      sums: ${{ steps.build.outputs.sums }}
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        id: build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          for arch in amd64 arm64; do
+            make build GOARCH="$arch" VERSION="$TAG"
+          done
+          {
+            echo "sums<<EOF"
+            (cd bin && sha256sum openbao-plugin-auth-tailscale_linux_* | awk '{ print $1 }')
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   release:
     name: Build, attest and publish
-    needs: [ci, e2e]
+    needs: [ci, e2e, reproduce]
     runs-on: ubuntu-latest
     permissions:
       # Create the release
@@ -70,6 +107,18 @@ jobs:
               "dist/openbao-plugin-auth-tailscale_${version}_linux_${arch}"
           done
           (cd dist && sha256sum openbao-plugin-auth-tailscale_* > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Compare with the reproduced build
+        id: compare
+        env:
+          REPRODUCED: ${{ needs.reproduce.outputs.sums }}
+        run: |
+          built=$(awk '{ print $1 }' dist/SHA256SUMS)
+          if [ "$built" != "$REPRODUCED" ]; then
+            echo "::error::the build differs from the one reproduced on arm64"
+            printf 'here:\n%s\nreproduced:\n%s\n' "$built" "$REPRODUCED"
+            exit 1
+          fi
 
       # The release notes are the version's section of the changelog; a
       # tag without one is a mistake
