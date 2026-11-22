@@ -1,0 +1,54 @@
+name: End-to-End Tests
+
+on:
+  # Every pull request, including ones stacked on another branch
+  pull_request:
+  push:
+    branches:
+      - main
+  # A release runs this test on the tagged commit before it builds
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request replaces the run it supersedes
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  headscale:
+    name: End-to-End (OpenBao ${{ matrix.openbao }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The latest release of the two newest minors
+        openbao: ["2.6.6", "2.7.3"]
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        id: build
+        run: make build
+
+      # Real tailscaled processes and a real OpenBao against headscale on
+      # the runner: no account, no secret. Prints diagnostics on failure.
+      - name: Test
+        id: e2e
+        env:
+          OPENBAO_VERSION: ${{ matrix.openbao }}
+        run: make e2e

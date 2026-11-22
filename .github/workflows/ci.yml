@@ -1,0 +1,156 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  # A release runs these checks on the tagged commit before it builds
+  workflow_call:
+
+permissions:
+  contents: read
+
+# A newer push to a pull request replaces the run it supersedes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Upload the findings to code scanning
+      security-events: write
+      # only required in private repositories
+      actions: read
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Go is linted here rather than in super-linter, with the version
+      # .golangci.toml is written for. See linter.yml.
+      - name: Lint
+        id: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          # The text output keeps the annotations; SARIF goes to code scanning
+          args: --output.text.path=stdout --output.sarif.path=golangci-lint.sarif
+
+      # Pull requests from forks get no security-events permission
+      - name: Upload lint findings
+        id: upload-sarif
+        if: >-
+          !cancelled() && hashFiles('golangci-lint.sarif') != '' &&
+          (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: golangci-lint.sarif
+          category: golangci-lint
+
+  # Fails on a reachable vulnerability, which the SARIF run in
+  # govulncheck.yml only reports. A release needs this job to pass.
+  vuln:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Run govulncheck
+        id: govulncheck
+        run: make vuln
+
+  test:
+    name: Go Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The Makefile's tests, with a JUnit report for the annotations and
+      # a coverage profile
+      - name: Test
+        id: go-test
+        run: |
+          mkdir -p "${RUNNER_TEMP}/junit"
+          make test TESTFLAGS="-coverprofile=coverage.out" \
+            GOTESTSUM_FLAGS="--format github-actions --junitfile ${RUNNER_TEMP}/junit/unit.xml"
+
+      # With the release's flags, for both architectures a release ships.
+      # A renamed version variable makes -X do nothing, silently.
+      - name: Build
+        id: build
+        run: |
+          make build GOARCH=amd64 VERSION=v0.0.0-stamp-check
+          make build GOARCH=arm64 VERSION=v0.0.0-stamp-check
+          for binary in bin/openbao-plugin-auth-tailscale_linux_*; do
+            if ! grep -q --binary-files=text v0.0.0-stamp-check "$binary"; then
+              echo "::error::${binary} does not carry the version it was built as"
+              exit 1
+            fi
+          done
+
+      - name: Report test results
+        id: junit
+        if: ${{ !cancelled() }}
+        uses: mikepenz/action-junit-report@6ef3fdcfcd5f0b5d14df3e659ef19b8c6820f93d # v6.6.1
+        with:
+          report_paths: ${{ runner.temp }}/junit/*.xml
+          # Annotations and the job summary need no checks permission
+          annotate_only: true
+          check_name: Go Tests
+
+      # Informational only: no threshold
+      - name: Coverage
+        id: coverage
+        if: ${{ !cancelled() }}
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          total=$(go tool cover -func=coverage.out | awk 'END { print $NF }')
+          echo "### Coverage: ${total}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        id: upload-coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.html
