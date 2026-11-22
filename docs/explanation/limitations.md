@@ -52,8 +52,9 @@ issued keep working until they expire.
 
 ## Not covered by the tests
 
-The plugin has not been tested behind a listener directly on the tailnet interface, in an OpenBao cluster of
-several nodes, or with nodes that host Tailscale Services. [Testing](../testing.md#what-no-test-covers) says why.
+The plugin has not been tested behind a listener directly on the tailnet interface, or with nodes that host
+Tailscale Services. Its OpenBao cluster runs on one host, each node with its own `tailscaled`.
+[Testing](../testing.md#what-no-test-covers) says why.
 
 ## OpenBao only
 

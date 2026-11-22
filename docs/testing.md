@@ -71,11 +71,11 @@ userspace mode, and an OpenBao cluster of two nodes on Raft storage with the plu
 
 | Node | Identity | Role in the test |
 | --- | --- | --- |
-| server | `tag:example-server` | Runs `tailscale serve` in front of OpenBao; the plugin asks its `tailscaled` |
+| server | `tag:example-server` | Runs `tailscale serve` in front of the first OpenBao node, whose plugin asks its `tailscaled` |
 | caller | `tag:example-caller` | Logs in |
 | other | `tag:example-caller` | Tries to use the caller's token |
 | person | a user, no tags | Tries to log in |
-| server2 | `tag:example-server` | Runs `tailscale serve` in front of the second OpenBao node; tries to log in as itself |
+| server2 | `tag:example-server` | Runs `tailscale serve` in front of the second OpenBao node, whose plugin asks its `tailscaled`; tries to log in as itself |
 
 OpenBao is reached over both paths the plugin supports behind `tailscale serve`: the HTTP proxy, where OpenBao
 trusts `X-Forwarded-For` from loopback, and the TCP forward with PROXY protocol, where OpenBao terminates TLS
@@ -87,9 +87,11 @@ not off the tailnet. A role bound to an app capability the policy grants the cal
 bound to another tag, a role bound to a capability the policy doesn't grant, an unknown role, an untagged node, the
 server node itself, an address no node has, and a subnet router. A rate limit quota for one role limits that role's
 logins and no other's, and takes the place of a quota for the whole mount. A forged `X-Forwarded-For` changes nothing. A
-renewal is refused once the role's policies change and once the caller's tag changes. In the cluster, a login through
-the standby keeps the caller's address, logins work after the active node steps down, and the standby's own node is
-refused for a role bound to the OpenBao nodes' tag. A login and a renewal are refused once `tailscaled` is gone.
+renewal is refused once the role's policies change and once the caller's tag changes. In the cluster, a standby answers
+a login itself, through its own `tailscaled`, and keeps the caller's address. The standby's own node is refused through
+the standby as the node its `tailscaled` runs as, and through the active node for a role bound to the OpenBao nodes'
+tag. Logins work after the active node steps down, and a token issued before renews through the new active node. A login
+and a renewal are refused once `tailscaled` is gone.
 
 `OPENBAO_VERSION` and `TAILSCALE_VERSION` choose the versions, and the script records the checksum of every
 download it accepts: a new version needs its checksums added. CI runs the newest release of OpenBao's two latest
@@ -101,7 +103,8 @@ minors. `E2E_PAUSE=600` keeps everything running for ten minutes after a failure
 - A node that hosts a Tailscale Service. The rule that lets it log in has a unit test; headscale has no Services.
 - A node shared in from another tailnet, and a node key that expires. headscale has no node sharing, and the
   test runs it without key expiry. Both rules have unit tests.
-- An OpenBao cluster on more than one host. The test's two OpenBao nodes run on one host and share one
-  `tailscaled` socket, so each node's plugin asks the same daemon.
+- OpenBao nodes on separate hosts. The test's two OpenBao nodes run on one host. Each asks its own `tailscaled`:
+  the second runs in a container that finds its node's `tailscaled` at the socket path the plugin's config
+  names, as a second host would.
 - A listener directly on the tailnet interface. Userspace `tailscaled` hands connections to a backend from
   loopback, so the end-to-end test always goes through `tailscale serve`.

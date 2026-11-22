@@ -101,7 +101,9 @@ It prints `000`.
 
 Each OpenBao node asks its own `tailscaled`. Put the same listener, serve configuration and firewall rule on
 every node, and make sure every node can see every caller: if the nodes share a Tailscale Service, they all do.
-A login that reaches a standby is forwarded to the active node with the caller's address intact.
+A standby answers a login itself, asking its own `tailscaled`, so a node's `tailscaled` must be running for
+logins that reach that node. The end-to-end test shows this on OpenBao 2.6 and 2.7, with each node's plugin
+asking its own `tailscaled`.
 
 A token is bound to the caller's addresses in both families, so it doesn't matter whether a later request
 arrives over IPv4 or IPv6.

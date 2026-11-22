@@ -319,9 +319,9 @@ func TestLoginRefusals(t *testing.T) {
 	}
 }
 
-// A standby OpenBao node forwards its own logins to the active node, whose
-// tailscaled does not run as it. A role that the OpenBao nodes' tags match
-// would be theirs.
+// A local process on one OpenBao host can reach another OpenBao node, whose
+// tailscaled does not run as the first host's node. A role that the OpenBao
+// nodes' tags match would be theirs.
 //
 // Guards: G3
 func TestLoginRefusedForRoleTheHostMatches(t *testing.T) {
