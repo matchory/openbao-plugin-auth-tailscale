@@ -1,7 +1,7 @@
 # Roles
 
-`auth/tailscale/role/<name>` binds Tailscale tags, and optionally app capabilities, to token settings. Role names are case-insensitive and stored
-in lower case.
+`auth/tailscale/role/<name>` binds Tailscale tags, and optionally app capabilities, to token settings. Role names
+are case-insensitive and stored in lower case.
 
 ```bash
 bao write auth/tailscale/role/api bound_tags=tag:example-api token_policies=api token_ttl=30m
