@@ -21,6 +21,9 @@ Never bind a tag that hosts carry, such as a tag for all servers. Containers and
 tailnet through their host's Tailscale arrive from the host's address, so every one of them would hold the role.
 Bind tags that only the workload's own node has.
 
+Never bind the tags of your OpenBao nodes either. A login for a role that binds only tags the OpenBao host's
+node carries is always refused, since every local process on any OpenBao host would hold it.
+
 A tag is the identity. Check in your tailnet policy who owns each tag you bind (`tagOwners`), and which
 credentials can create nodes with it: each of them can use the role.
 

@@ -47,7 +47,7 @@ type backend struct {
 // one it uses outside tests. See there for what each method promises.
 type whoIser interface {
 	WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, error)
-	Self(ctx context.Context) (string, error)
+	Self(ctx context.Context) (identity.Host, error)
 }
 
 // Factory returns the backend, set up with conf. OpenBao calls it once per

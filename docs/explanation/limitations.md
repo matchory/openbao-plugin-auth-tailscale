@@ -28,10 +28,15 @@ node, a token issued to the first keeps working from that address until its TTL 
 The same holds for a tag removed from a node. A role without `token_ttl` and `token_max_ttl` gets the mount's
 defaults, 768 hours unless the mount is tuned, so set both on every role.
 
-## The OpenBao host can't log in
+## The OpenBao hosts can't log in
 
 The node `tailscaled` runs as on an OpenBao host is always refused, because every local process on that host
-sends from its address. Run a workload that needs a token on a node of its own.
+sends from its address. So is every login for a role that binds only tags that node carries: in a cluster, the
+other OpenBao hosts carry the same tags, and a login from one of them can reach a node whose `tailscaled` runs as
+another. Run a workload that needs a token on a node of its own.
+
+That second rule knows only the answering host's tags. If the OpenBao nodes of a cluster carry different tags,
+don't bind any of them in a role.
 
 ## Forwarding the plugin can't see
 

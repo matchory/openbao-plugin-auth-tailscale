@@ -168,7 +168,7 @@ func TestCheckNode(t *testing.T) {
 				tc.change(n)
 			}
 
-			if err := CheckNode(n, self, tc.remote, now); !errors.Is(err, tc.want) {
+			if err := CheckNode(n, Host{StableID: self}, tc.remote, now); !errors.Is(err, tc.want) {
 				t.Errorf("CheckNode() = %v, want %v", err, tc.want)
 			}
 		})
@@ -178,7 +178,12 @@ func TestCheckNode(t *testing.T) {
 func TestCheckNodeNil(t *testing.T) {
 	t.Parallel()
 
-	if err := CheckNode(nil, self, netip.MustParseAddr("100.64.0.5"), now); err == nil {
+	if err := CheckNode(
+		nil,
+		Host{StableID: self},
+		netip.MustParseAddr("100.64.0.5"),
+		now,
+	); err == nil {
 		t.Error("CheckNode(nil) = nil, want an error")
 	}
 }
@@ -254,6 +259,42 @@ func TestCheckSameNode(t *testing.T) {
 				t.Errorf("CheckSameNode() = %v, want %v", err, tc.want)
 			}
 		})
+	}
+}
+
+// Guards: G3
+func TestCheckRoleExcludesHost(t *testing.T) {
+	t.Parallel()
+
+	host := Host{StableID: self, Tags: []string{"tag:example-openbao", "tag:prod"}}
+
+	tests := []struct {
+		name  string
+		bound []string
+		want  error
+	}{
+		{name: "a tag the host lacks", bound: []string{"tag:example-api"}},
+		{name: "the host's tag and one it lacks", bound: []string{"tag:prod", "tag:example-api"}},
+		{name: "one of the host's tags", bound: []string{"tag:prod"}, want: ErrHostRole},
+		{
+			name:  "all of the host's tags",
+			bound: []string{"tag:example-openbao", "tag:prod"},
+			want:  ErrHostRole,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := CheckRoleExcludesHost(host, tc.bound); !errors.Is(err, tc.want) {
+				t.Errorf("CheckRoleExcludesHost(%v) = %v, want %v", tc.bound, err, tc.want)
+			}
+		})
+	}
+
+	// An untagged host matches no role: a role binds at least one tag.
+	if err := CheckRoleExcludesHost(Host{StableID: self}, []string{"tag:prod"}); err != nil {
+		t.Errorf("an untagged host: %v", err)
 	}
 }
 

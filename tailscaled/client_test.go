@@ -17,6 +17,7 @@ import (
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
+	"tailscale.com/types/views"
 
 	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
 	"github.com/matchory/openbao-plugin-auth-tailscale/tailscaled"
@@ -347,17 +348,30 @@ func TestCheckTag(t *testing.T) {
 func TestSelf(t *testing.T) {
 	t.Parallel()
 
+	tags := views.SliceOf([]string{"tag:example-openbao"})
 	running := &ipnstate.Status{
 		BackendState: "Running",
-		Self:         &ipnstate.PeerStatus{ID: "nSELF"},
+		Self:         &ipnstate.PeerStatus{ID: "nSELF", Tags: &tags},
 	}
 
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
-		want    string
+		want    identity.Host
 	}{
-		{name: "running", handler: respond(running), want: "nSELF"},
+		{
+			name:    "running",
+			handler: respond(running),
+			want:    identity.Host{StableID: "nSELF", Tags: []string{"tag:example-openbao"}},
+		},
+		{
+			name: "running untagged",
+			handler: respond(&ipnstate.Status{
+				BackendState: "Running",
+				Self:         &ipnstate.PeerStatus{ID: "nSELF"},
+			}),
+			want: identity.Host{StableID: "nSELF"},
+		},
 		{name: "stopped", handler: respond(&ipnstate.Status{
 			BackendState: "Stopped",
 			Self:         &ipnstate.PeerStatus{ID: "nSELF"},
@@ -391,17 +405,18 @@ func TestSelf(t *testing.T) {
 				nil,
 			)
 
-			id, err := tailscaled.New(socket).Self(t.Context())
-			if tc.want == "" {
-				if err == nil || id != "" {
-					t.Errorf("Self() = %q, %v; want an error", id, err)
+			host, err := tailscaled.New(socket).Self(t.Context())
+			if tc.want.StableID == "" {
+				if err == nil || host.StableID != "" {
+					t.Errorf("Self() = %v, %v; want an error", host, err)
 				}
 
 				return
 			}
 
-			if err != nil || id != tc.want {
-				t.Errorf("Self() = %q, %v; want %q", id, err, tc.want)
+			if err != nil || host.StableID != tc.want.StableID ||
+				!slices.Equal(host.Tags, tc.want.Tags) {
+				t.Errorf("Self() = %v, %v; want %v", host, err, tc.want)
 			}
 
 			// The peer list can be large, and nothing in it is needed.

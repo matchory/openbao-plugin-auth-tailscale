@@ -59,8 +59,10 @@ cleanup() {
 			echo "--- tailscaled ($node)"
 			tail -n 40 "$WORK/$node/log" 2>/dev/null || true
 		done
-		echo "--- openbao"
+		echo "--- openbao (openbao1)"
 		tail -n 60 "$WORK/openbao.log" 2>/dev/null || true
+		echo "--- openbao (openbao2)"
+		tail -n 40 "$WORK/openbao2.log" 2>/dev/null || true
 		echo "--- headscale"
 		docker logs --tail 60 e2e-headscale 2>&1 || true
 		# E2E_PAUSE=600 keeps everything running that long after a failure,
@@ -145,32 +147,56 @@ node() {
 	ts "$name" up --login-server="$URL" --auth-key="$key" --hostname="e2e-$name" --accept-dns=false
 }
 
-log "Starting four nodes"
+log "Starting five nodes"
 node server 1051 "$operator" tag:example-server
 node caller 1052 "$operator" tag:example-caller
 node other 1053 "$operator" tag:example-caller
 node person 1054 "$person"
+node server2 1055 "$operator" tag:example-server
 server4=$(ts server ip -4)
 server6=$(ts server ip -6)
 caller4=$(ts caller ip -4)
 caller6=$(ts caller ip -6)
 echo "server $server4 $server6, caller $caller4 $caller6"
 
-log "Starting OpenBao with the plugin"
+log "Starting an OpenBao cluster of two nodes with the plugin"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
 	-keyout "$WORK/tls.key" -out "$WORK/tls.pem" -subj /CN=e2e-server 2>/dev/null
 mkdir "$WORK/plugins"
 cp "$PLUGIN_BINARY" "$WORK/plugins/$PLUGIN"
-sed "s|@WORK@|$WORK|g" "$HERE/openbao.hcl" >"$WORK/openbao.hcl"
-"$WORK/bao" server -config="$WORK/openbao.hcl" -log-level=debug >"$WORK/openbao.log" 2>&1 &
-PIDS+=($!)
+# openbao NAME P JOIN LOG: one node of the cluster, its ports starting with P
+openbao() {
+	mkdir -p "$WORK/$1"
+	sed -e "s|@WORK@|$WORK|g" -e "s|@NODE@|$1|g" -e "s|@P@|$2|g" -e "s|# @JOIN@|$3|" \
+		"$HERE/openbao.hcl" >"$WORK/$1.hcl"
+	"$WORK/bao" server -config="$WORK/$1.hcl" -log-level=debug >"$WORK/$4" 2>&1 &
+	PIDS+=($!)
+	retry 30 curl -fsS -o /dev/null "http://127.0.0.1:${2}8210/v1/sys/seal-status" || fail "OpenBao ($1) did not come up"
+}
+openbao openbao1 1 "" openbao.log
+openbao openbao2 2 'retry_join { leader_api_addr = "http://127.0.0.1:18210" }' openbao2.log
 export VAULT_ADDR=http://127.0.0.1:18210
+VAULT2=http://127.0.0.1:28210
 bao() { "$WORK/bao" "$@"; }
-retry 30 curl -fsS -o /dev/null "$VAULT_ADDR/v1/sys/seal-status" || fail "OpenBao did not come up"
 init=$(bao operator init -key-shares=1 -key-threshold=1 -format=json)
-bao operator unseal "$(jq -r '.unseal_keys_b64[0]' <<<"$init")" >/dev/null
+unseal_key=$(jq -r '.unseal_keys_b64[0]' <<<"$init")
+bao operator unseal "$unseal_key" >/dev/null
 VAULT_TOKEN=$(jq -r .root_token <<<"$init")
 export VAULT_TOKEN
+active() { [[ $(curl -s "http://127.0.0.1:${1}8210/v1/sys/leader" | jq -r .is_self) == true ]]; }
+retry 30 active 1 || fail "openbao1 did not become the active node"
+# The second node joins once it is unsealed, and then follows the first
+retry 30 bash -c "VAULT_ADDR=$VAULT2 '$WORK/bao' operator unseal '$unseal_key' >/dev/null" ||
+	fail "openbao2 could not be unsealed"
+standby() { [[ $(curl -s -o /dev/null -w '%{http_code}' "$VAULT2/v1/sys/health") == 429 ]]; }
+retry 60 standby || fail "openbao2 did not become a standby"
+# It joins as a non-voter; autopilot promotes it once it has been stable,
+# and only a voter can take over as the active node
+voter() {
+	bao operator raft list-peers -format=json |
+		jq -e '.data.config.servers[] | select(.node_id == "openbao2") | .voter' >/dev/null
+}
+retry 60 voter || fail "openbao2 never became a voter"
 
 bao plugin register -sha256="$(sha256sum "$WORK/plugins/$PLUGIN" | cut -d' ' -f1)" auth "$PLUGIN" >/dev/null
 bao auth enable -path=tailscale "$PLUGIN" >/dev/null
@@ -182,11 +208,14 @@ log "Serving OpenBao on the server node"
 # Plain HTTP on the proxy path: HTTPS would need a certificate for the node
 ts server serve --bg --http=80 http://127.0.0.1:18202 >/dev/null
 ts server serve --bg --tcp=8200 --proxy-protocol=2 tcp://127.0.0.1:18200 >/dev/null
+# The standby, on a node of its own
+ts server2 serve --bg --http=80 http://127.0.0.1:28202 >/dev/null
 
 # serve's HTTP handler answers for the node's name only, so that path is
 # reached by name and the proxy picks the address family. The TCP path is
 # reached by address, once per family.
 HTTP_URL=http://e2e-server.example.test
+STANDBY_URL=http://e2e-server2.example.test
 TCP_URL4=https://$server4:8200
 TCP_URL6=https://[$server6]:8200
 
@@ -196,14 +225,16 @@ call() {
 	curl -sk --max-time 15 -x "http://127.0.0.1:${PORT[$1]}" -w '\n%{http_code}' "${@:2}" || echo 000
 }
 status() { tail -n 1 <<<"$1"; }
-# refused_for REASON: yes if OpenBao's log has a refusal for REASON since the
-# last call. A 403 alone would also be the answer to a refusal for any other
-# reason.
-LOG_LINES=0
+# refused_for REASON: yes if either OpenBao node's log has a refusal for
+# REASON since the last call. A 403 alone would also be the answer to a
+# refusal for any other reason.
+declare -A LOG_LINES=(["openbao.log"]=0 ["openbao2.log"]=0)
 refused_for() {
-	local found=no
-	tail -n +$((LOG_LINES + 1)) "$WORK/openbao.log" | grep -q "refused:.*reason=.*$1" && found=yes
-	LOG_LINES=$(wc -l <"$WORK/openbao.log")
+	local found=no log
+	for log in openbao.log openbao2.log; do
+		tail -n +$((LOG_LINES[$log] + 1)) "$WORK/$log" | grep -q "refused:.*reason=.*$1" && found=yes
+		LOG_LINES[$log]=$(wc -l <"$WORK/$log")
+	done
 	echo "$found"
 }
 body() { sed '$d' <<<"$1"; }
@@ -273,6 +304,39 @@ check "the token fails from that node on the PROXY protocol path" 403 "$(status 
 check "the token fails off the tailnet" 403 \
 	"$(curl -s -o /dev/null -w '%{http_code}' -H "X-Vault-Token: $token" "$VAULT_ADDR/v1/auth/token/lookup-self")"
 
+log "Cluster"
+# Guards: G1
+# A login through the standby keeps the address the standby was told. Both
+# nodes' plugins ask the server node's tailscaled here, as the config is the
+# cluster's and every node of this test runs on one host.
+other4=$(ts other ip -4)
+other6=$(ts other ip -6)
+r=$(login other caller "$STANDBY_URL")
+check "login through the standby" 200 "$(status "$r")"
+address=$(body "$r" | jq -r .auth.metadata.address)
+check "... names the caller's own address" yes "$([[ $address == "$other4" || $address == "$other6" ]] && echo yes || echo no)"
+refused_for . >/dev/null
+# The server node's tailscaled doesn't run as the standby's node, as the
+# active node's wouldn't in a cluster that forwards logins. The role binds
+# only tags the OpenBao nodes carry.
+check "login from the standby's own node, for its tag" 403 "$(status "$(login server2 server-only "$STANDBY_URL")")"
+check "... because the role binds only the OpenBao nodes' tags" yes "$(refused_for 'tags the OpenBao node carries')"
+
+# step_down P: until the node whose ports start with P is active
+step_down() {
+	local from=$((3 - $1))
+	for _ in 1 2 3 4 5; do
+		VAULT_ADDR=http://127.0.0.1:${from}8210 bao operator step-down >/dev/null 2>&1 || true
+		retry 10 active "$1" && return 0
+	done
+	return 1
+}
+step_down 2 || fail "openbao2 never became the active node"
+check "login through the new active node" 200 "$(status "$(login other caller "$STANDBY_URL")")"
+check "login through the node that stepped down" 200 "$(status "$(login other caller "$HTTP_URL")")"
+# And back, so the rest of the test runs against the cluster as it started
+step_down 1 || fail "openbao1 never became the active node again"
+
 log "Renewal"
 # Guards: G5
 renew() { call caller -X POST -H "X-Vault-Token: $token" "$HTTP_URL/v1/auth/token/renew-self"; }
@@ -301,7 +365,6 @@ forged() {
 	curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST -H "X-Forwarded-For: $1" \
 		-d '{"role":"caller"}' http://127.0.0.1:18202/v1/auth/tailscale/login
 }
-other4=$(ts other ip -4)
 check "control: a forged address on the loopback listener is believed" 200 "$(forged "$other4")"
 refused_for . >/dev/null
 check "login from an address no node has" 403 "$(forged 100.64.0.99)"

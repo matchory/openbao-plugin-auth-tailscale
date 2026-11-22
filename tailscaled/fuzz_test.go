@@ -50,7 +50,7 @@ func FuzzWhoIsAnswer(f *testing.F) {
 		}
 
 		node := convert(&raw)
-		if identity.CheckNode(node, self, remote, now) != nil ||
+		if identity.CheckNode(node, identity.Host{StableID: self}, remote, now) != nil ||
 			identity.MatchTags(node, []string{"tag:example-api"}) != nil {
 			return
 		}

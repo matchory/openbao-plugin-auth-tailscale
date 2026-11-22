@@ -54,7 +54,7 @@ window can be.
 ### G3: A node gets a role only if it carries every tag the role binds
 
 Attackers: any other node on the tailnet; a local process on an OpenBao host.
-Assumes: E3, E5, E6.
+Assumes: E3, E5, E6, E7.
 
 These nodes get no role at all:
 
@@ -68,6 +68,11 @@ These nodes get no role at all:
   address, including one whose list is empty;
 - the node `tailscaled` itself runs as, which every local process on the
   OpenBao host can send from.
+
+A role that binds only tags the OpenBao host's own node carries gets no node
+at all: it matches the OpenBao nodes themselves, and in a cluster the node a
+local process on another OpenBao host sends from is not the one the
+answering node's `tailscaled` runs as.
 
 The plugin reads routes in two places: the routes the control server lets
 the node send from, and the routes the node itself advertises. A control
@@ -128,6 +133,7 @@ not tell whether a role exists. The reason goes to the plugin's debug log.
 | E4 | Every OpenBao node can answer WhoIs for every caller, which holds when all of them are reachable under the name callers use | operator |
 | E5 | A node's identity is what the Tailscale control server says it is, unless Tailnet Lock is on, which the plugin is not tested with | operator |
 | E6 | A node that carries a bound tag sends only its own traffic: it forwards nothing for other hosts, containers or networks | operator, tailnet policy |
+| E7 | The OpenBao nodes of a cluster carry the same tags, or none of them carries every tag a role binds | operator, tailnet policy |
 
 E4 is about availability: where it does not hold, logins are refused, not
 wrongly accepted.
