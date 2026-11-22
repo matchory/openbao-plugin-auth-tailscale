@@ -5,6 +5,7 @@
 | Get a first login working | [Getting started](getting-started.md) |
 | Put OpenBao behind `tailscale serve` safely | [Deploy behind tailscale serve](guides/deploy-behind-tailscale-serve.md) |
 | Decide what a role should bind | [Write a role](guides/write-a-role.md) |
+| Limit how often a role can log in | [Limit logins per role](guides/limit-logins-per-role.md) |
 | Check a downloaded binary | [Verify a release](guides/verify-a-release.md) |
 | Find out why a login was refused | [Troubleshoot](guides/troubleshoot.md) |
 | Look up a field | [Config](reference/config.md), [roles](reference/roles.md), [login](reference/login.md), [token metadata](reference/token-metadata.md) |
