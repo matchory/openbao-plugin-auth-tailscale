@@ -34,6 +34,9 @@ The token is bound to the node's own tailnet addresses.
 A refused login answers `403` with `permission denied`, whatever the reason.
 [Troubleshoot](../guides/troubleshoot.md) lists the reasons and where to read them.
 
+A login past a rate limit quota answers `429` before the method sees it. The method names a login's `role` for
+OpenBao, so a quota can apply to one role: [Limit logins per role](../guides/limit-logins-per-role.md).
+
 ## Renewal
 
 `POST auth/token/renew-self`, with the token, renews it. The request must come from the node that logged in.

@@ -246,6 +246,23 @@ r=$(login caller caller "$HTTP_URL" -H 'X-Forwarded-For: 100.64.0.99')
 check "login with a forged X-Forwarded-For" 200 "$(status "$r")"
 check "a forged X-Forwarded-For does not change the address" "$http_address" "$(body "$r" | jq -r .auth.metadata.address)"
 
+log "Rate limits"
+# A quota can name one role, because the login path resolves its role for
+# OpenBao. It counts every login for the role, refused or not.
+bao write sys/quotas/rate-limit/caller-logins path=auth/tailscale/ role=caller rate=1 interval=1m >/dev/null
+check "the first login under a quota of one a minute" 200 "$(status "$(login caller caller "$HTTP_URL")")"
+check "the second login under that quota" 429 "$(status "$(login caller caller "$HTTP_URL")")"
+# Refused for its tag, so it reached the plugin: the quota let it through
+check "a login for another role is not counted against it" 403 "$(status "$(login caller server-only "$HTTP_URL")")"
+bao delete sys/quotas/rate-limit/caller-logins >/dev/null
+# With a quota for the mount too, the one for the role is what applies
+bao write sys/quotas/rate-limit/caller-logins path=auth/tailscale/ role=caller rate=5 interval=1m >/dev/null
+bao write sys/quotas/rate-limit/all-logins path=auth/tailscale/ rate=1 interval=1m >/dev/null
+check "a login under a role quota and a stricter mount quota" 200 "$(status "$(login caller caller "$HTTP_URL")")"
+check "another, still within the role quota" 200 "$(status "$(login caller caller "$HTTP_URL")")"
+bao delete sys/quotas/rate-limit/caller-logins >/dev/null
+bao delete sys/quotas/rate-limit/all-logins >/dev/null
+
 log "Token binding"
 # Guards: G2
 check "the token works from the caller, HTTP proxy path" 200 "$(status "$(lookup caller "$token" "$HTTP_URL")")"
