@@ -18,6 +18,10 @@ func validNode() *Node {
 		StableID: "nTEST1",
 		Name:     "api-1.example.ts.net.",
 		Tags:     []string{"tag:example-api", "tag:prod"},
+		Capabilities: []string{
+			"example.com/cap/openbao-api",
+			"example.com/cap/metrics",
+		},
 		Addresses: []netip.Addr{
 			netip.MustParseAddr("100.64.0.5"),
 			netip.MustParseAddr("fd7a:115c:a1e0::5"),
@@ -213,6 +217,93 @@ func TestMatchTags(t *testing.T) {
 
 			if err := MatchTags(validNode(), tc.bound); !errors.Is(err, tc.want) {
 				t.Errorf("MatchTags() = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// Guards: G3
+func TestMatchCapabilities(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		bound []string
+		want  error
+	}{
+		{name: "nothing bound", bound: nil},
+		{name: "one the node holds", bound: []string{"example.com/cap/openbao-api"}},
+		{
+			name:  "all the node holds",
+			bound: []string{"example.com/cap/openbao-api", "example.com/cap/metrics"},
+		},
+		{
+			name:  "one the node lacks",
+			bound: []string{"example.com/cap/openbao-worker"},
+			want:  ErrCapabilityMismatch,
+		},
+		{
+			name:  "one held, one missing",
+			bound: []string{"example.com/cap/openbao-api", "example.com/cap/openbao-worker"},
+			want:  ErrCapabilityMismatch,
+		},
+		{
+			name:  "a prefix of one the node holds",
+			bound: []string{"example.com/cap/openbao"},
+			want:  ErrCapabilityMismatch,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := MatchCapabilities(validNode(), tc.bound); !errors.Is(err, tc.want) {
+				t.Errorf("MatchCapabilities() = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatchCapabilitiesNodeWithout(t *testing.T) {
+	t.Parallel()
+
+	n := validNode()
+	n.Capabilities = nil
+
+	if err := MatchCapabilities(n, nil); err != nil {
+		t.Errorf("MatchCapabilities(nothing bound) = %v, want nil", err)
+	}
+
+	err := MatchCapabilities(n, []string{"example.com/cap/openbao-api"})
+	if !errors.Is(err, ErrCapabilityMismatch) {
+		t.Errorf("MatchCapabilities() = %v, want %v", err, ErrCapabilityMismatch)
+	}
+}
+
+func TestCheckCapabilityName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{name: "domain and path", in: "example.com/cap/openbao-api"},
+		{name: "subdomain", in: "openbao.example.com/role"},
+		{name: "empty", in: "", wantErr: true},
+		{name: "no path", in: "example.com", wantErr: true},
+		{name: "empty path", in: "example.com/", wantErr: true},
+		{name: "no domain", in: "/cap/openbao", wantErr: true},
+		{name: "domain without a dot", in: "example/cap/openbao", wantErr: true},
+		{name: "whitespace", in: "example.com/cap/open bao", wantErr: true},
+		{name: "a tag", in: "tag:example-api", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := CheckCapabilityName(tc.in); (err != nil) != tc.wantErr {
+				t.Errorf("CheckCapabilityName(%q) = %v, want error: %v", tc.in, err, tc.wantErr)
 			}
 		})
 	}

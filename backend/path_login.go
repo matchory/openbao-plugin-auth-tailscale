@@ -133,6 +133,11 @@ func (b *backend) attest(
 			node.StableID, node.Tags, roleName, role.BoundTags, err)
 	}
 
+	if err := identity.MatchCapabilities(node, role.BoundCapabilities); err != nil {
+		return nil, fmt.Errorf("node %s with %v, role %q binding %v: %w",
+			node.StableID, node.Capabilities, roleName, role.BoundCapabilities, err)
+	}
+
 	if err := identity.CheckRoleExcludesHost(host, role.BoundTags); err != nil {
 		return nil, fmt.Errorf("role %q binding %v, OpenBao node tagged %v: %w",
 			roleName, role.BoundTags, host.Tags, err)

@@ -203,6 +203,10 @@ bao auth enable -path=tailscale "$PLUGIN" >/dev/null
 bao write auth/tailscale/config socket="$WORK/server/sock" >/dev/null
 bao write auth/tailscale/role/caller bound_tags=tag:example-caller token_ttl=10m >/dev/null
 bao write auth/tailscale/role/server-only bound_tags=tag:example-server >/dev/null
+bao write auth/tailscale/role/caller-granted bound_tags=tag:example-caller \
+	bound_capabilities=example.com/cap/openbao-caller >/dev/null
+bao write auth/tailscale/role/caller-ungranted bound_tags=tag:example-caller \
+	bound_capabilities=example.com/cap/openbao-other >/dev/null
 
 log "Serving OpenBao on the server node"
 # Plain HTTP on the proxy path: HTTPS would need a certificate for the node
@@ -262,6 +266,11 @@ check "an IPv6 login names the caller's IPv6 address" "$caller6" "$(body "$r" | 
 refused_for . >/dev/null
 check "login for a role bound to another tag" 403 "$(status "$(login caller server-only "$HTTP_URL")")"
 check "... because the node lacks the tag" yes "$(refused_for 'node lacks a bound tag')"
+check "login for a role bound to a capability the policy grants" 200 \
+	"$(status "$(login caller caller-granted "$HTTP_URL")")"
+check "login for a role bound to a capability the policy does not grant" 403 \
+	"$(status "$(login caller caller-ungranted "$HTTP_URL")")"
+check "... because the node lacks the capability" yes "$(refused_for 'node lacks a bound capability')"
 check "login for a role that does not exist" 403 "$(status "$(login caller nope "$HTTP_URL")")"
 check "... because there is no such role" yes "$(refused_for 'no such role')"
 check "login from a node without tags" 403 "$(status "$(login person caller "$HTTP_URL")")"

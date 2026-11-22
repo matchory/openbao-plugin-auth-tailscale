@@ -30,6 +30,7 @@ at the default level too.
 | `node is the one tailscaled runs as` | The request came from the OpenBao host itself | Log in from another node; see [Limitations](../explanation/limitations.md#the-openbao-host-cant-log-in) |
 | `no such role` | The role name is wrong | `bao list auth/tailscale/role` |
 | `node lacks a bound tag` | The node doesn't carry every tag in the role's `bound_tags` | Compare `tailscale whois <address>` on the OpenBao host with the role |
+| `node lacks a bound capability` | The tailnet policy doesn't grant the node every capability in the role's `bound_capabilities`, or grants it to a Service instead of the OpenBao nodes' tag | Check that `tailscale whois <address>` on the OpenBao host lists the capability; see [Write a role](write-a-role.md#require-a-capability) |
 | `address now belongs to another node` | On renewal: the address was given to a different node | Log in again from the new node |
 | `role no longer grants the token's policies` | On renewal: the role's policies changed after the login | Log in again |
 

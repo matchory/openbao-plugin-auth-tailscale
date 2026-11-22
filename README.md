@@ -37,7 +37,8 @@ time, and when the node behind the address:
 - is shared in from another tailnet,
 - has an expired key,
 - is a subnet router or an exit node,
-- lacks one of the tags the role binds.
+- lacks one of the tags the role binds,
+- lacks one of the app capabilities the role binds, if it binds any.
 
 Every refusal is the same `permission denied`. The reason is in the plugin's debug log.
 

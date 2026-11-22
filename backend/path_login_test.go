@@ -337,6 +337,46 @@ func TestLoginRefusedForRoleTheHostMatches(t *testing.T) {
 	assertRefused(t, resp, err)
 }
 
+// Guards: G3
+func TestLoginBoundCapabilities(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		holds []string
+		want  bool
+	}{
+		{name: "holds every bound capability", holds: []string{
+			"example.com/cap/metrics", "example.com/cap/openbao-api",
+		}, want: true},
+		{name: "holds one of two", holds: []string{"example.com/cap/openbao-api"}},
+		{name: "holds none"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, s, who := loginBackend(t)
+			who.node.Capabilities = tc.holds
+
+			writeRole(t, b, s, "api", map[string]any{"bound_capabilities": []string{
+				"example.com/cap/openbao-api", "example.com/cap/metrics",
+			}})
+
+			resp, err := login(b, s, "100.64.0.5", "api")
+			if !tc.want {
+				assertRefused(t, resp, err)
+
+				return
+			}
+
+			if err != nil || resp == nil || resp.Auth == nil {
+				t.Errorf("login = %v, %v, want a token", resp, err)
+			}
+		})
+	}
+}
+
 // Guards: G1
 func TestLoginWithoutConnection(t *testing.T) {
 	t.Parallel()

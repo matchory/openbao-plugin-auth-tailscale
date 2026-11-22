@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Roles can bind app capabilities (`bound_capabilities`). A node must then
+  hold every one of them, granted by the tailnet policy to the OpenBao
+  nodes' tag, as well as carry the role's tags. A renewal checks them again.
+
 ## [0.1.0] - 2026-11-22
 
 ### Added
