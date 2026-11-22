@@ -81,12 +81,12 @@ trusts `X-Forwarded-For` from loopback, and the TCP forward with PROXY protocol,
 itself. A request sent through a node's outbound proxy arrives from that node, which is how one script acts as
 several nodes.
 
-It checks that a login works over both paths and both address families, and that a token works only from the
-caller and not off the tailnet. These are refused: a role bound to another tag, an unknown role, an untagged
-node, the server node itself, an address no node has, and a subnet router. A rate limit quota for one role
-limits that role's logins and no other's, and takes the place of a quota for the whole mount. A forged `X-Forwarded-For` changes
-nothing. A renewal is refused once the role's policies change and once the caller's tag changes. A login and a
-renewal are refused once `tailscaled` is gone.
+It checks that a login works over both paths and both address families, and that a token works only from the caller and
+not off the tailnet. These are refused: a role bound to another tag, an unknown role, an untagged node, the server node
+itself, an address no node has, and a subnet router. A rate limit quota for one role limits that role's logins and no
+other's, and takes the place of a quota for the whole mount. A forged `X-Forwarded-For` changes nothing. A renewal is
+refused once the role's policies change and once the caller's tag changes. A login and a renewal are refused once
+`tailscaled` is gone.
 
 `OPENBAO_VERSION` and `TAILSCALE_VERSION` choose the versions, and the script records the checksum of every
 download it accepts: a new version needs its checksums added. CI runs the newest release of OpenBao's two latest
