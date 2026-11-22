@@ -167,7 +167,7 @@ cp "$PLUGIN_BINARY" "$WORK/plugins/$PLUGIN"
 # openbao NAME P JOIN LOG: one node of the cluster, its ports starting with P
 openbao() {
 	mkdir -p "$WORK/$1"
-	sed -e "s|@WORK@|$WORK|g" -e "s|@NODE@|$1|g" -e "s|@P@|$2|g" -e "s|@JOIN@|$3|" \
+	sed -e "s|@WORK@|$WORK|g" -e "s|@NODE@|$1|g" -e "s|@P@|$2|g" -e "s|# @JOIN@|$3|" \
 		"$HERE/openbao.hcl" >"$WORK/$1.hcl"
 	"$WORK/bao" server -config="$WORK/$1.hcl" -log-level=debug >"$WORK/$4" 2>&1 &
 	PIDS+=($!)
@@ -228,7 +228,7 @@ status() { tail -n 1 <<<"$1"; }
 # refused_for REASON: yes if either OpenBao node's log has a refusal for
 # REASON since the last call. A 403 alone would also be the answer to a
 # refusal for any other reason.
-declare -A LOG_LINES=([openbao.log]=0 [openbao2.log]=0)
+declare -A LOG_LINES=(["openbao.log"]=0 ["openbao2.log"]=0)
 refused_for() {
 	local found=no log
 	for log in openbao.log openbao2.log; do

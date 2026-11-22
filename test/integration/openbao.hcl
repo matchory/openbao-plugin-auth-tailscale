@@ -1,10 +1,11 @@
 # One OpenBao node of the end-to-end test's cluster. run.sh replaces @WORK@,
 # @NODE@ (openbao1, openbao2), @P@ (the first digit of every port: 1 or 2)
-# and @JOIN@ (how the node joins the cluster, or nothing).
+# and the JOIN comment in the raft block (with how the node joins the
+# cluster, or nothing): a comment, so the template stays valid HCL.
 storage "raft" {
   path    = "@WORK@/@NODE@"
   node_id = "@NODE@"
-  @JOIN@
+  # @JOIN@
 }
 
 disable_mlock    = true
