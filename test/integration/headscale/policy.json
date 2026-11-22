@@ -9,6 +9,11 @@
 			"src": ["tag:example-caller", "tag:example-retired", "person@"],
 			"dst": ["tag:example-server"],
 			"ip": ["tcp:80", "tcp:8200"]
+		},
+		{
+			"src": ["tag:example-server"],
+			"dst": ["tag:example-server"],
+			"ip": ["tcp:80", "tcp:8200"]
 		}
 	]
 }

@@ -69,7 +69,7 @@ func FuzzCheckNode(f *testing.F) {
 			node.AllowedIPs = []netip.Prefix{prefix}
 		}
 
-		if CheckNode(node, self, remoteAddr, now) != nil {
+		if CheckNode(node, Host{StableID: self}, remoteAddr, now) != nil {
 			return
 		}
 

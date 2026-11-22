@@ -17,12 +17,12 @@ import (
 )
 
 // fakeWhoIser answers every question with node or err and records what it
-// was asked. It runs as the node self, or fails with selfErr as a daemon
+// was asked. It runs as the node host, or fails with selfErr as a daemon
 // that is not connected does.
 type fakeWhoIser struct {
 	node    *identity.Node
 	err     error
-	self    string
+	host    identity.Host
 	selfErr error
 	// block makes WhoIs wait for its context to end, as a hung daemon would.
 	block bool
@@ -46,18 +46,21 @@ func (f *fakeWhoIser) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Nod
 	return f.node, f.err
 }
 
-func (f *fakeWhoIser) Self(context.Context) (string, error) {
+func (f *fakeWhoIser) Self(context.Context) (identity.Host, error) {
 	if f.selfErr != nil {
-		return "", f.selfErr
+		return identity.Host{}, f.selfErr
 	}
 
-	return f.self, nil
+	return f.host, nil
 }
 
 // newFakeWhoIser returns a tailscaled that runs as its own node and answers
 // with the valid node.
 func newFakeWhoIser() *fakeWhoIser {
-	return &fakeWhoIser{node: validNode(), self: "nSELF"}
+	return &fakeWhoIser{
+		node: validNode(),
+		host: identity.Host{StableID: "nSELF", Tags: []string{"tag:example-openbao"}},
+	}
 }
 
 func validNode() *identity.Node {
@@ -314,6 +317,24 @@ func TestLoginRefusals(t *testing.T) {
 			assertRefused(t, resp, err)
 		})
 	}
+}
+
+// A standby OpenBao node forwards its own logins to the active node, whose
+// tailscaled does not run as it. A role that the OpenBao nodes' tags match
+// would be theirs.
+//
+// Guards: G3
+func TestLoginRefusedForRoleTheHostMatches(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+	who.node.StableID = "nSTANDBY"
+	who.node.Tags = []string{"tag:example-openbao"}
+
+	writeRole(t, b, s, "openbao", map[string]any{"bound_tags": []string{"tag:example-openbao"}})
+
+	resp, err := login(b, s, "100.64.0.5", "openbao")
+	assertRefused(t, resp, err)
 }
 
 // Guards: G1

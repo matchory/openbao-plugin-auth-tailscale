@@ -32,7 +32,8 @@ sequenceDiagram
    clients would log in as the router. `tailscaled` must list the address as one the node may send from. Hosting a
    Tailscale Service is fine. The node must not be the one `tailscaled` runs as: every local process on the OpenBao host
    sends from that node's address.
-4. **The role.** The role must exist, and the node must carry every tag it binds.
+4. **The role.** The role must exist, and the node must carry every tag it binds. The OpenBao host's own node
+   must not carry all of them: such a role would match the OpenBao nodes themselves.
 
 The plugin asks `tailscaled` before it looks up the role, so a refusal takes as long for a role that exists as
 for one that doesn't.

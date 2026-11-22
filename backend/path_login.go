@@ -105,7 +105,7 @@ func (b *backend) attest(
 
 	// Asked even for an unknown address: a daemon that is not connected
 	// knows no address, and that is the operator's problem to see.
-	self, selfErr := who.Self(whoIsCtx)
+	host, selfErr := who.Self(whoIsCtx)
 	if selfErr != nil {
 		return nil, fmt.Errorf("ask tailscaled: %w", selfErr)
 	}
@@ -115,7 +115,7 @@ func (b *backend) attest(
 	}
 
 	now := b.now()
-	if err := identity.CheckNode(node, self, remote, now); err != nil {
+	if err := identity.CheckNode(node, host, remote, now); err != nil {
 		return nil, fmt.Errorf("node at %s: %w", remote, err)
 	}
 
@@ -131,6 +131,11 @@ func (b *backend) attest(
 	if err := identity.MatchTags(node, role.BoundTags); err != nil {
 		return nil, fmt.Errorf("node %s with %v, role %q binding %v: %w",
 			node.StableID, node.Tags, roleName, role.BoundTags, err)
+	}
+
+	if err := identity.CheckRoleExcludesHost(host, role.BoundTags); err != nil {
+		return nil, fmt.Errorf("role %q binding %v, OpenBao node tagged %v: %w",
+			roleName, role.BoundTags, host.Tags, err)
 	}
 
 	return &attestation{node: node, role: role, remote: remote, at: now}, nil

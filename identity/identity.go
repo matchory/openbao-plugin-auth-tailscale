@@ -32,6 +32,7 @@ const (
 	ErrNotAllowed      Refusal = "node may not send from this address"
 	ErrTagMismatch     Refusal = "node lacks a bound tag"
 	ErrNodeChanged     Refusal = "address now belongs to another node"
+	ErrHostRole        Refusal = "role binds only tags the OpenBao node carries"
 )
 
 var errNilNode = errors.New("no node")
@@ -86,15 +87,20 @@ func ParseRemoteAddr(s string) (netip.Addr, error) {
 	return addr, nil
 }
 
-// CheckNode reports why the node behind remote may not log in, or nil. self
-// is the stable ID of the node tailscaled runs as.
-func CheckNode(n *Node, self string, remote netip.Addr, now time.Time) error {
+// Host is the node the OpenBao host's own tailscaled runs as.
+type Host struct {
+	StableID string
+	Tags     []string
+}
+
+// CheckNode reports why the node behind remote may not log in, or nil.
+func CheckNode(n *Node, host Host, remote netip.Addr, now time.Time) error {
 	switch {
 	case n == nil:
 		return errNilNode
 	// Any local process on the OpenBao host reaches OpenBao from the host's
 	// own address, so it would log in as the host.
-	case n.StableID == self:
+	case n.StableID == host.StableID:
 		return ErrSelf
 	case len(n.Tags) == 0:
 		return ErrUntagged
@@ -134,6 +140,19 @@ func MatchTags(n *Node, bound []string) error {
 		if !slices.Contains(n.Tags, tag) {
 			return ErrTagMismatch
 		}
+	}
+
+	return nil
+}
+
+// CheckRoleExcludesHost returns ErrHostRole when host carries every tag the
+// role binds. Such a role matches the OpenBao host itself, and the other
+// nodes of its cluster, which carry the same tags: a local process on any of
+// them would hold the role, and on a standby the node is not the host the
+// active node's tailscaled runs as.
+func CheckRoleExcludesHost(host Host, bound []string) error {
+	if MatchTags(&Node{Tags: host.Tags}, bound) == nil {
+		return ErrHostRole
 	}
 
 	return nil

@@ -26,6 +26,7 @@ at the default level too.
 | `address is not one of the node's own` | The request arrived from an address the node routes for, not its own | Log in from the node itself |
 | `node routes for other addresses` | The caller is a subnet router or an exit node, or advertises a route that isn't approved | Run the workload on a node of its own, or stop advertising the route (`tailscale set --advertise-routes=`) |
 | `node may not send from this address` | `tailscaled` doesn't list the source address among those the node may send from | Compare `tailscale whois <address>` on the OpenBao host with the node's addresses |
+| `role binds only tags the OpenBao node carries` | The role's tags would match the OpenBao nodes themselves | Bind a tag only the workload's node carries |
 | `node is the one tailscaled runs as` | The request came from the OpenBao host itself | Log in from another node; see [Limitations](../explanation/limitations.md#the-openbao-host-cant-log-in) |
 | `no such role` | The role name is wrong | `bao list auth/tailscale/role` |
 | `node lacks a bound tag` | The node doesn't carry every tag in the role's `bound_tags` | Compare `tailscale whois <address>` on the OpenBao host with the role |

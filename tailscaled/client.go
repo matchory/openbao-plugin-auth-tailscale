@@ -57,26 +57,31 @@ func (c *Client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, er
 	return convert(who.Node), nil
 }
 
-// Self returns the stable ID of the node tailscaled runs as, or an error when
-// tailscaled is not connected to its tailnet. It never returns an empty ID
-// without an error. A daemon that is logged out, stopped or still starting
+// Self returns the node tailscaled runs as, or an error when tailscaled is
+// not connected to its tailnet. It never returns an empty stable ID without
+// an error. A daemon that is logged out, stopped or still starting
 // answers every WhoIs with "no such node", so its state is what tells that
 // apart from a caller no tailnet knows.
-func (c *Client) Self(ctx context.Context) (string, error) {
+func (c *Client) Self(ctx context.Context) (identity.Host, error) {
 	st, err := c.local.StatusWithoutPeers(ctx)
 	if err != nil {
-		return "", fmt.Errorf("status: %w", err)
+		return identity.Host{}, fmt.Errorf("status: %w", err)
 	}
 
 	if st.BackendState != ipn.Running.String() {
-		return "", fmt.Errorf("tailscaled is %s, not %s", st.BackendState, ipn.Running)
+		return identity.Host{}, fmt.Errorf("tailscaled is %s, not %s", st.BackendState, ipn.Running)
 	}
 
 	if st.Self == nil || st.Self.ID == "" {
-		return "", errNoSelf
+		return identity.Host{}, errNoSelf
 	}
 
-	return string(st.Self.ID), nil
+	host := identity.Host{StableID: string(st.Self.ID)}
+	if st.Self.Tags != nil {
+		host.Tags = st.Self.Tags.AsSlice()
+	}
+
+	return host, nil
 }
 
 func convert(n *tailcfg.Node) *identity.Node {
