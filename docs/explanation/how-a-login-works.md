@@ -26,12 +26,12 @@ sequenceDiagram
    `fd7a:115c:a1e0::/48`. Anything else is refused without asking `tailscaled`.
 2. **The node.** The plugin asks the local `tailscaled` who owns the address, and which node it runs as itself.
    It waits no longer than the configured timeout for both. No answer is a refusal.
-3. **What kind of node.** The node must have tags, must belong to this tailnet, must have a key that hasn't
-   expired, and must own the address the request came from. It must not route for other addresses: traffic a
-   subnet router or exit node forwards arrives from the router's address, so its clients would log in as the
-   router. `tailscaled` must list the address as one the node may send from. Hosting a Tailscale Service is
-   fine. The node must not be the one `tailscaled` runs as: every local process on the OpenBao host sends from
-   that node's address.
+3. **What kind of node.** The node must have tags, must belong to this tailnet, must have a key that hasn't expired, and
+   must own the address the request came from. It must not route for other addresses, by what the control server says or
+   by what the node advertises: traffic a subnet router or exit node forwards arrives from the router's address, so its
+   clients would log in as the router. `tailscaled` must list the address as one the node may send from. Hosting a
+   Tailscale Service is fine. The node must not be the one `tailscaled` runs as: every local process on the OpenBao host
+   sends from that node's address.
 4. **The role.** The role must exist, and the node must carry every tag it binds.
 
 The plugin asks `tailscaled` before it looks up the role, so a refusal takes as long for a role that exists as

@@ -56,6 +56,11 @@ type Node struct {
 	// AllowedIPs is everything the node may send from: its own addresses,
 	// the Service addresses it hosts, and any routes it advertises.
 	AllowedIPs []netip.Prefix
+	// AdvertisedRoutes are the routes the node itself says it offers,
+	// approved or not. A control server can leave a route out of
+	// AllowedIPs for a peer that may not use it, as headscale does; the
+	// node still advertises it.
+	AdvertisedRoutes []netip.Prefix
 	// KeyExpiry is the zero time when the node key does not expire.
 	KeyExpiry time.Time
 	// Expired is the control server's own verdict that the key has expired.
@@ -103,7 +108,7 @@ func CheckNode(n *Node, self string, remote netip.Addr, now time.Time) error {
 
 	// Traffic a subnet router or exit node forwards arrives from the
 	// router's own address, so its clients would log in as the router.
-	for _, p := range n.AllowedIPs {
+	for _, p := range slices.Concat(n.AllowedIPs, n.AdvertisedRoutes) {
 		if !p.IsSingleIP() || !isTailnet(p.Addr()) {
 			return ErrRoutes
 		}

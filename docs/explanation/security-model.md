@@ -29,8 +29,9 @@ share its identity.
   that.
 - **Shared-in nodes** belong to another tailnet, whose administrators decide their tags.
 - **Subnet routers and exit nodes** forward traffic for others, which arrives from the router's own address.
-  The plugin knows only the routes the control server publishes, so a tag you bind must not be on any node that
-  forwards traffic another way, such as through NAT for containers. That is property E6.
+  The plugin also reads the routes a node advertises, because a control server can hide a route from an OpenBao
+  host that may not use it. A node that forwards traffic without advertising a route, such as through NAT for
+  containers, is invisible to both, so a tag you bind must not be on one. That is property E6.
 - **The OpenBao host's own node** is where every local process on that host sends from. If it could log in, any
   user on the host would hold the roles its tags match.
 

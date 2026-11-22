@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   address belongs to another node, and when the role's policies have changed.
 - Nodes without tags, shared-in nodes, nodes with an expired key, subnet
   routers and exit nodes are refused.
+- A node that advertises routes is refused as a router, approved or not,
+  even when the control server leaves the routes out of what the OpenBao
+  host sees.
 - The node `tailscaled` runs as is refused, so a local process on the OpenBao
   host can't log in as the host.
 - A node is refused unless `tailscaled` lists the source address among those

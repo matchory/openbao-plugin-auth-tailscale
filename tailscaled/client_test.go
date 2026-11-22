@@ -113,6 +113,9 @@ func taggedNode() *tailcfg.Node {
 			netip.MustParsePrefix("fd7a:115c:a1e0::5/128"),
 			netip.MustParsePrefix("100.100.104.251/32"),
 		},
+		Hostinfo: (&tailcfg.Hostinfo{
+			RoutableIPs: []netip.Prefix{netip.MustParsePrefix("100.100.104.251/32")},
+		}).View(),
 	}
 }
 
@@ -154,6 +157,13 @@ func TestWhoIsConverts(t *testing.T) {
 
 	if len(node.AllowedIPs) != 3 {
 		t.Errorf("AllowedIPs = %v, want three prefixes", node.AllowedIPs)
+	}
+
+	if !slices.Equal(
+		node.AdvertisedRoutes,
+		[]netip.Prefix{netip.MustParsePrefix("100.100.104.251/32")},
+	) {
+		t.Errorf("AdvertisedRoutes = %v", node.AdvertisedRoutes)
 	}
 
 	if node.Shared || node.Expired || !node.KeyExpiry.IsZero() {
@@ -213,6 +223,19 @@ func TestWhoIsUntagged(t *testing.T) {
 
 	if len(node.Tags) != 0 {
 		t.Errorf("Tags = %v for a node without tags", node.Tags)
+	}
+}
+
+// A daemon can answer without the node's Hostinfo; its view would panic.
+func TestWhoIsWithoutHostinfo(t *testing.T) {
+	t.Parallel()
+
+	n := taggedNode()
+	n.Hostinfo = tailcfg.HostinfoView{}
+
+	node, err := tailscaled.New(fakeDaemon(t, respond(whoIs(n)))).WhoIs(t.Context(), addr)
+	if err != nil || len(node.AdvertisedRoutes) != 0 {
+		t.Errorf("WhoIs = %v, %v; want a node that advertises nothing", node, err)
 	}
 }
 

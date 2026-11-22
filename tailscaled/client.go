@@ -85,15 +85,24 @@ func convert(n *tailcfg.Node) *identity.Node {
 		addrs = append(addrs, prefix.Addr())
 	}
 
+	// The view of a missing Hostinfo panics on any field it is asked for.
+	var advertised []netip.Prefix
+	if n.Hostinfo.Valid() {
+		advertised = n.Hostinfo.RoutableIPs().AsSlice()
+	}
+
 	return &identity.Node{
 		StableID:   string(n.StableID),
 		Name:       n.Name,
 		Tags:       n.Tags,
 		Addresses:  addrs,
 		AllowedIPs: n.AllowedIPs,
-		KeyExpiry:  n.KeyExpiry,
-		Expired:    n.Expired,
-		Shared:     n.Sharer != 0,
+		// What the node reports of itself: a control server can hide a
+		// route from AllowedIPs, but not from the router's own report.
+		AdvertisedRoutes: advertised,
+		KeyExpiry:        n.KeyExpiry,
+		Expired:          n.Expired,
+		Shared:           n.Sharer != 0,
 	}
 }
 

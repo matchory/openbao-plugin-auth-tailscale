@@ -37,6 +37,8 @@ func FuzzWhoIsAnswer(f *testing.F) {
 		`{"StableID":"nSELF","Tags":["tag:example-api"],"Addresses":["100.64.0.5/32"],` +
 			`"AllowedIPs":["100.64.0.5/32"]}`,
 		`{"StableID":"nTEST1","Tags":["tag:example-api"],"Addresses":["100.64.0.5/32"]}`,
+		`{"StableID":"nTEST1","Tags":["tag:example-api"],"Addresses":["100.64.0.5/32"],` +
+			`"AllowedIPs":["100.64.0.5/32"],"Hostinfo":{"RoutableIPs":["10.0.0.0/24"]}}`,
 	} {
 		f.Add([]byte(seed))
 	}
@@ -68,7 +70,12 @@ func FuzzWhoIsAnswer(f *testing.F) {
 			t.Errorf("accepted %v for a node that may send from %v", remote, raw.AllowedIPs)
 		}
 
-		for _, p := range raw.AllowedIPs {
+		var advertised []netip.Prefix
+		if raw.Hostinfo.Valid() {
+			advertised = raw.Hostinfo.RoutableIPs().AsSlice()
+		}
+
+		for _, p := range slices.Concat(raw.AllowedIPs, advertised) {
 			if p.Bits() != p.Addr().BitLen() {
 				t.Errorf("accepted a node that routes %v", p)
 			}

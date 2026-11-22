@@ -61,18 +61,20 @@ These nodes get no role at all:
 - a node without tags (a person's device);
 - a node shared in from another tailnet;
 - a node whose key has expired;
-- a node that `tailscaled` says routes for other addresses (a subnet router or
-  an exit node, whose clients would arrive from the router's address);
+- a node that routes for other addresses, by what the control server says or
+  by what the node advertises, approved or not (a subnet router or an exit
+  node, whose clients would arrive from the router's address);
 - a node `tailscaled` does not list as allowed to send from the source
   address, including one whose list is empty;
 - the node `tailscaled` itself runs as, which every local process on the
   OpenBao host can send from.
 
-The routes the plugin sees are those the control server publishes to the
-OpenBao host, which are only the routes the tailnet policy lets that host
-use. A subnet router whose routes the host may not use, and a node that
-forwards traffic without published routes, through NAT for example, look
-like any other node: E6 is what keeps such a node out of a role.
+The plugin reads routes in two places: the routes the control server lets
+the node send from, and the routes the node itself advertises. A control
+server can leave a route out of the first for an OpenBao host the policy
+doesn't let use it, as headscale does; the second still names it. A node
+that forwards traffic without advertising a route, through NAT for example,
+looks like any other node: E6 is what keeps such a node out of a role.
 
 ### G4: Nothing succeeds when tailscaled cannot be asked
 
