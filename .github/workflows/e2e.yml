@@ -52,3 +52,21 @@ jobs:
         env:
           OPENBAO_VERSION: ${{ matrix.openbao }}
         run: make e2e
+
+  # One check to require for merging, whatever versions the matrix holds
+  result:
+    name: End-to-End
+    needs: headscale
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Every OpenBao version passed
+        id: result
+        env:
+          RESULT: ${{ needs.headscale.result }}
+        run: |
+          if [ "$RESULT" != success ]; then
+            echo "::error::the end-to-end test did not pass for every OpenBao version: ${RESULT}"
+            exit 1
+          fi

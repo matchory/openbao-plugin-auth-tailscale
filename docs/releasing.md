@@ -1,7 +1,8 @@
 # Releasing
 
-A release is a `vX.Y.Z` tag on `main` (see `release.yml`). Before tagging, check that the plugin's security
-guarantees hold for the commit, as [SECURITY.md](../SECURITY.md) describes them:
+A release is a `vX.Y.Z` tag on `main` (see `release.yml`). Only repository admins can create one, and the workflow stops
+before building when the tagged commit isn't on `main`. Before tagging, check that the plugin's security guarantees hold
+for the commit, as [SECURITY.md](../SECURITY.md) describes them:
 
 1. CI is green on the commit: lint, the Go tests (including the check that every published guarantee is
    guarded), the vulnerability scan, and the end-to-end test on every OpenBao version in its matrix. The release

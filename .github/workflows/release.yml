@@ -15,6 +15,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Only what was merged is released: a tag on a commit outside main stops
+  # here, before anything is built
+  on-main:
+    name: Tag is on main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: "false"
+          fetch-depth: 0
+
+      - name: Check the tagged commit
+        id: ancestry
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${GITHUB_REF_NAME} is not on main"
+            exit 1
+          fi
+
   # A tag can be pushed on any commit: what is released has passed the same
   # checks as a pull request
   ci:
@@ -70,7 +94,7 @@ jobs:
 
   release:
     name: Build, attest and publish
-    needs: [ci, e2e, reproduce]
+    needs: [on-main, ci, e2e, reproduce]
     runs-on: ubuntu-latest
     permissions:
       # Create the release
