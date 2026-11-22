@@ -292,11 +292,12 @@ check "... because tailscaled knows no such node" yes "$(refused_for 'no node ha
 
 # Guards: G3
 # A subnet router's clients arrive from the router's address. The policy
-# grants the server node the route: a node sees only routes it may use.
+# grants the server node no access to the route, so headscale leaves it out
+# of the router's AllowedIPs; only the router's own report names it.
 ts other set --advertise-routes=10.99.0.0/24
 other_id=$(hs nodes list -o json | jq -r '.[] | select(.given_name == "e2e-other") | .id')
 hs nodes approve-routes --identifier "$other_id" --routes 10.99.0.0/24 >/dev/null
-routes() { ts server whois --json "$other4" | jq -e '.Node.AllowedIPs | index("10.99.0.0/24")' >/dev/null; }
+routes() { ts server whois --json "$other4" | jq -e '.Node.Hostinfo.RoutableIPs | index("10.99.0.0/24")' >/dev/null; }
 retry 30 routes || fail "the server node never saw the other node's route"
 refused_for . >/dev/null
 check "login from a subnet router" 403 "$(status "$(login other caller "$HTTP_URL")")"

@@ -35,11 +35,10 @@ sends from its address. Run a workload that needs a token on a node of its own.
 
 ## Forwarding the plugin can't see
 
-The plugin refuses subnet routers and exit nodes by the routes the control server publishes to the OpenBao host.
-The control server publishes only the routes the tailnet policy lets that host use, so a subnet router whose routes
-the OpenBao host has no grant for looks like an ordinary node. So does a node that forwards traffic without
-published routes, such as a Docker host that NATs its containers or a Kubernetes egress proxy. Everything behind
-such a node logs in as that node. Don't bind a tag that a forwarding node carries.
+The plugin refuses subnet routers and exit nodes by their routes: those the control server lets the node send from,
+and those the node advertises, approved or not. A node that forwards traffic without advertising a route, such as a
+Docker host that NATs its containers or a Kubernetes egress proxy, looks to the plugin like a node sending its own
+traffic. Everything behind such a node logs in as that node. Don't bind a tag that a forwarding node carries.
 
 ## No login without tailscaled
 

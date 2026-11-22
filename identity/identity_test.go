@@ -117,6 +117,14 @@ func TestCheckNode(t *testing.T) {
 		},
 		{name: "subnet router", change: allow("10.0.0.0/24"), remote: v4, want: ErrRoutes},
 		{
+			name: "subnet router whose route is only advertised",
+			change: func(n *Node) {
+				n.AdvertisedRoutes = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")}
+			},
+			remote: v4,
+			want:   ErrRoutes,
+		},
+		{
 			name:   "no allowed addresses",
 			change: func(n *Node) { n.AllowedIPs = nil },
 			remote: v4,
