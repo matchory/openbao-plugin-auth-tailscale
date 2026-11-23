@@ -12,6 +12,7 @@ would break what this page lists comes only in a new major version, under "Chang
 | Paths | `config`, `role/<name>` (read, write, list, delete) and `login` keep their paths and operations |
 | [Config](config.md) and [role](roles.md) fields | Names, types, defaults and the values each accepts. A new field is optional, and its default keeps today's behaviour |
 | Stored roles and config | What one release stored, every later release of the major version reads and applies the same way |
+| Issued tokens | A token one release issued renews under every later release of the major version, on the same checks |
 | [Login](login.md) | The request takes `role`; a refusal is `403` with `permission denied` and nothing else |
 | [Token metadata](token-metadata.md) | The five keys and what each holds. A release may add a key |
 | Entity alias | The alias name is the role name |
