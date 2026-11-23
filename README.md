@@ -59,7 +59,8 @@ can become that tag. [Limitations](docs/explanation/limitations.md) lists the re
   [write a role](docs/guides/write-a-role.md), [verify a release](docs/guides/verify-a-release.md),
   [troubleshoot](docs/guides/troubleshoot.md)
 - Reference: [config](docs/reference/config.md), [roles](docs/reference/roles.md),
-  [login](docs/reference/login.md), [token metadata](docs/reference/token-metadata.md)
+  [login](docs/reference/login.md), [token metadata](docs/reference/token-metadata.md),
+  [compatibility](docs/reference/compatibility.md)
 - Explanation: [how a login works](docs/explanation/how-a-login-works.md),
   [security model](docs/explanation/security-model.md), [limitations](docs/explanation/limitations.md)
 - [Testing](docs/testing.md), [contributing](CONTRIBUTING.md), [security policy](SECURITY.md)

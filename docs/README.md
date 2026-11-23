@@ -9,6 +9,7 @@
 | Check a downloaded binary | [Verify a release](guides/verify-a-release.md) |
 | Find out why a login was refused | [Troubleshoot](guides/troubleshoot.md) |
 | Look up a field | [Config](reference/config.md), [roles](reference/roles.md), [login](reference/login.md), [token metadata](reference/token-metadata.md) |
+| Know what an upgrade can change | [Compatibility](reference/compatibility.md) |
 | Understand what happens during a login | [How a login works](explanation/how-a-login-works.md) |
 | Know what the plugin guarantees, and what it assumes | [Security model](explanation/security-model.md) |
 | Know what it doesn't do | [Limitations](explanation/limitations.md) |
