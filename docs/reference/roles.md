@@ -62,8 +62,8 @@ When the node's key has an expiry, `token_ttl`, `token_max_ttl` and `token_perio
 token ends no later than the key.
 
 `token_ttl` and `token_max_ttl` also bound how long a token outlives a change to its node: an address passed to
-another node, or a tag or capability removed. [Limitations](../explanation/limitations.md#a-token-is-checked-again-only-at-renewal)
-has the details.
+another node, or a tag or capability removed.
+[Limitations](../explanation/limitations.md#a-token-is-checked-again-only-at-renewal) has the details.
 
 ## Entity alias
 

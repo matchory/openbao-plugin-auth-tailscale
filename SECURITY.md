@@ -112,8 +112,8 @@ such as its type, its number of uses or `token_no_default_policy`, does not
 end tokens already issued.
 
 These checks run when a token is renewed, not in between. A tag or a
-capability removed from a node ends its tokens at their next renewal, or at the end of their TTL if they
-are not renewed.
+capability removed from a node ends its tokens at their next renewal, or at
+the end of their TTL if they are not renewed.
 
 Batch tokens are never renewed, so nothing re-checks them. They end with
 their TTL.

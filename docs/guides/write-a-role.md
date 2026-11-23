@@ -63,8 +63,8 @@ bao write auth/tailscale/role/api bound_tags=tag:example-api token_policies=api 
 
 Keep `token_ttl` short: logging in again costs the caller one request and no secret. Each renewal checks the
 node again and is refused if the node lost a bound tag or capability, or the role's tags, capabilities or
-policies changed, so a short TTL
-is also how soon such a change takes effect. Other token settings of a role apply to tokens issued afterwards.
+policies changed, so a short TTL is also how soon such a change takes effect. Other token settings of a role
+apply to tokens issued afterwards.
 
 Batch tokens (`token_type=batch`) are never renewed, so nothing re-checks them. Give them a TTL you'd accept as
 the delay before a removed tag takes effect.
