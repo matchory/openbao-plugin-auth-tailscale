@@ -73,7 +73,7 @@ cleanup() {
 		fi
 	fi
 	kill "${PIDS[@]}" 2>/dev/null || true
-	docker rm -f e2e-headscale >/dev/null 2>&1 || true
+	docker rm -f e2e-headscale e2e-openbao2 >/dev/null 2>&1 || true
 	rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -164,17 +164,28 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 	-keyout "$WORK/tls.key" -out "$WORK/tls.pem" -subj /CN=e2e-server 2>/dev/null
 mkdir "$WORK/plugins"
 cp "$PLUGIN_BINARY" "$WORK/plugins/$PLUGIN"
-# openbao NAME P JOIN LOG: one node of the cluster, its ports starting with P
+# openbao NAME P JOIN LOG [DAEMON]: one node of the cluster, its ports
+# starting with P. The plugin's config is the cluster's, so every node's
+# plugin opens the same socket path, that of the server node's tailscaled.
+# With DAEMON, the node runs in a container that finds the tailscaled of
+# node DAEMON at that path instead, as a second OpenBao host would find its
+# own. Any image runs the static bao binary; headscale's is already pulled.
 openbao() {
 	mkdir -p "$WORK/$1"
 	sed -e "s|@WORK@|$WORK|g" -e "s|@NODE@|$1|g" -e "s|@P@|$2|g" -e "s|# @JOIN@|$3|" \
 		"$HERE/openbao.hcl" >"$WORK/$1.hcl"
-	"$WORK/bao" server -config="$WORK/$1.hcl" -log-level=debug >"$WORK/$4" 2>&1 &
+	if [[ -n ${5:-} ]]; then
+		docker run --rm --name "e2e-$1" --network host --user "$(id -u):$(id -g)" --tmpfs /tmp \
+			-v "$WORK:$WORK" -v "$WORK/$5:$WORK/server" --entrypoint "$WORK/bao" "$HEADSCALE_IMAGE" \
+			server -config="$WORK/$1.hcl" -log-level=debug >"$WORK/$4" 2>&1 &
+	else
+		"$WORK/bao" server -config="$WORK/$1.hcl" -log-level=debug >"$WORK/$4" 2>&1 &
+	fi
 	PIDS+=($!)
 	retry 30 curl -fsS -o /dev/null "http://127.0.0.1:${2}8210/v1/sys/seal-status" || fail "OpenBao ($1) did not come up"
 }
 openbao openbao1 1 "" openbao.log
-openbao openbao2 2 'retry_join { leader_api_addr = "http://127.0.0.1:18210" }' openbao2.log
+openbao openbao2 2 'retry_join { leader_api_addr = "http://127.0.0.1:18210" }' openbao2.log server2
 export VAULT_ADDR=http://127.0.0.1:18210
 VAULT2=http://127.0.0.1:28210
 bao() { "$WORK/bao" "$@"; }
@@ -315,20 +326,27 @@ check "the token fails off the tailnet" 403 \
 
 log "Cluster"
 # Guards: G1
-# A login through the standby keeps the address the standby was told. Both
-# nodes' plugins ask the server node's tailscaled here, as the config is the
-# cluster's and every node of this test runs on one host.
+# A login through the standby keeps the address the standby was told. Each
+# OpenBao node's plugin asks its own node's tailscaled: openbao1 the server
+# node's, openbao2 server2's.
 other4=$(ts other ip -4)
 other6=$(ts other ip -6)
 r=$(login other caller "$STANDBY_URL")
 check "login through the standby" 200 "$(status "$r")"
 address=$(body "$r" | jq -r .auth.metadata.address)
 check "... names the caller's own address" yes "$([[ $address == "$other4" || $address == "$other6" ]] && echo yes || echo no)"
+# Guards: G3
+# A standby answers a login itself, through its own tailscaled, which runs as
+# the standby's node
 refused_for . >/dev/null
-# The server node's tailscaled doesn't run as the standby's node, as the
-# active node's wouldn't in a cluster that forwards logins. The role binds
-# only tags the OpenBao nodes carry.
-check "login from the standby's own node, for its tag" 403 "$(status "$(login server2 server-only "$STANDBY_URL")")"
+check "login from the standby's own node, through the standby" 403 \
+	"$(status "$(login server2 server-only "$STANDBY_URL")")"
+check "... because it is the node tailscaled runs as" yes "$(refused_for 'node is the one tailscaled runs as')"
+# A local process on one OpenBao host can reach another OpenBao node, whose
+# tailscaled sees that host as any other node. The role binds only tags the
+# OpenBao nodes carry.
+check "login from the standby's own node, through the active node" 403 \
+	"$(status "$(login server2 server-only "$HTTP_URL")")"
 check "... because the role binds only the OpenBao nodes' tags" yes "$(refused_for 'tags the OpenBao node carries')"
 
 # step_down P: until the node whose ports start with P is active
@@ -343,6 +361,11 @@ step_down() {
 step_down 2 || fail "openbao2 never became the active node"
 check "login through the new active node" 200 "$(status "$(login other caller "$STANDBY_URL")")"
 check "login through the node that stepped down" 200 "$(status "$(login other caller "$HTTP_URL")")"
+# Guards: G5
+# The token was issued while openbao1 was active; server2's tailscaled names
+# the same node by the same stable ID
+check "a token from the first active node renews through the second" 200 \
+	"$(status "$(call caller -X POST -H "X-Vault-Token: $token" "$STANDBY_URL/v1/auth/token/renew-self")")"
 # And back, so the rest of the test runs against the cluster as it started
 step_down 1 || fail "openbao1 never became the active node again"
 

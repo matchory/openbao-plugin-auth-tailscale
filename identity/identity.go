@@ -188,8 +188,9 @@ func CheckCapabilityName(name string) error {
 // CheckRoleExcludesHost returns ErrHostRole when host carries every tag the
 // role binds. Such a role matches the OpenBao host itself, and the other
 // nodes of its cluster, which carry the same tags: a local process on any of
-// them would hold the role, and on a standby the node is not the host the
-// active node's tailscaled runs as.
+// them would hold the role. A process on one OpenBao host that reaches
+// another OpenBao node arrives as a node that this node's tailscaled does
+// not run as, so the check for the host's own node misses it.
 func CheckRoleExcludesHost(host Host, bound []string) error {
 	if MatchTags(&Node{Tags: host.Tags}, bound) == nil {
 		return ErrHostRole
