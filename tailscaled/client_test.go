@@ -177,6 +177,40 @@ func TestWhoIsConverts(t *testing.T) {
 	}
 }
 
+func TestWhoIsCapabilities(t *testing.T) {
+	t.Parallel()
+
+	answer := whoIs(taggedNode())
+	answer.CapMap = tailcfg.PeerCapMap{
+		"example.com/cap/openbao-api": {`{"note":"values are ignored"}`},
+		"example.com/cap/metrics":     nil,
+	}
+
+	node, err := tailscaled.New(fakeDaemon(t, respond(answer))).WhoIs(t.Context(), addr)
+	if err != nil {
+		t.Fatalf("WhoIs: %v", err)
+	}
+
+	want := []string{"example.com/cap/metrics", "example.com/cap/openbao-api"}
+	if !slices.Equal(node.Capabilities, want) {
+		t.Errorf("Capabilities = %v, want %v", node.Capabilities, want)
+	}
+}
+
+func TestWhoIsWithoutCapabilities(t *testing.T) {
+	t.Parallel()
+
+	node, err := tailscaled.New(fakeDaemon(t, respond(whoIs(taggedNode())))).
+		WhoIs(t.Context(), addr)
+	if err != nil {
+		t.Fatalf("WhoIs: %v", err)
+	}
+
+	if len(node.Capabilities) != 0 {
+		t.Errorf("Capabilities = %v for an answer without any", node.Capabilities)
+	}
+}
+
 func TestWhoIsKeyExpiry(t *testing.T) {
 	t.Parallel()
 

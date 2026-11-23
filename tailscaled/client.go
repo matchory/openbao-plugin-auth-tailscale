@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"slices"
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
@@ -54,7 +55,24 @@ func (c *Client) WhoIs(ctx context.Context, addr netip.Addr) (*identity.Node, er
 		return nil, fmt.Errorf("whois %s: %w", addr, errNoNode)
 	}
 
-	return convert(who.Node), nil
+	node := convert(who.Node)
+	node.Capabilities = capabilities(who.CapMap)
+
+	return node, nil
+}
+
+// capabilities returns the names in a WhoIs answer's capability map, sorted.
+// A role binds a capability by name; what the policy gives it as values is
+// for the applications that define them.
+func capabilities(caps tailcfg.PeerCapMap) []string {
+	names := make([]string, 0, len(caps))
+	for name := range caps {
+		names = append(names, string(name))
+	}
+
+	slices.Sort(names)
+
+	return names
 }
 
 // Self returns the node tailscaled runs as, or an error when tailscaled is

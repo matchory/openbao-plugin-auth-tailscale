@@ -8,7 +8,9 @@ import (
 	"errors"
 	"net/netip"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // A Refusal is a decision that a caller may not log in. Any other error on
@@ -21,21 +23,26 @@ func (r Refusal) Error() string { return string(r) }
 // The reasons a login is refused. Callers of this package log them; the
 // caller of the login never sees which one applied.
 const (
-	ErrNotTailnet      Refusal = "address is not a Tailscale address"
-	ErrUnknownAddress  Refusal = "no node has this address"
-	ErrUntagged        Refusal = "node has no tags"
-	ErrShared          Refusal = "node is shared in from another tailnet"
-	ErrExpired         Refusal = "node key has expired"
-	ErrSelf            Refusal = "node is the one tailscaled runs as"
-	ErrAddressMismatch Refusal = "address is not one of the node's own"
-	ErrRoutes          Refusal = "node routes for other addresses"
-	ErrNotAllowed      Refusal = "node may not send from this address"
-	ErrTagMismatch     Refusal = "node lacks a bound tag"
-	ErrNodeChanged     Refusal = "address now belongs to another node"
-	ErrHostRole        Refusal = "role binds only tags the OpenBao node carries"
+	ErrNotTailnet         Refusal = "address is not a Tailscale address"
+	ErrUnknownAddress     Refusal = "no node has this address"
+	ErrUntagged           Refusal = "node has no tags"
+	ErrShared             Refusal = "node is shared in from another tailnet"
+	ErrExpired            Refusal = "node key has expired"
+	ErrSelf               Refusal = "node is the one tailscaled runs as"
+	ErrAddressMismatch    Refusal = "address is not one of the node's own"
+	ErrRoutes             Refusal = "node routes for other addresses"
+	ErrNotAllowed         Refusal = "node may not send from this address"
+	ErrTagMismatch        Refusal = "node lacks a bound tag"
+	ErrCapabilityMismatch Refusal = "node lacks a bound capability"
+	ErrNodeChanged        Refusal = "address now belongs to another node"
+	ErrHostRole           Refusal = "role binds only tags the OpenBao node carries"
 )
 
-var errNilNode = errors.New("no node")
+var (
+	errNilNode         = errors.New("no node")
+	errCapabilitySpace = errors.New("contains whitespace")
+	errCapabilityForm  = errors.New("not a domain followed by a path, as in example.com/cap/name")
+)
 
 // The ranges Tailscale assigns node and Service addresses from.
 var (
@@ -52,6 +59,9 @@ type Node struct {
 	Name string
 	// Tags is empty for a node that belongs to a person.
 	Tags []string
+	// Capabilities are the names of the app capabilities the tailnet policy
+	// grants the node towards the node tailscaled runs as.
+	Capabilities []string
 	// Addresses are the node's own tailnet addresses.
 	Addresses []netip.Addr
 	// AllowedIPs is everything the node may send from: its own addresses,
@@ -140,6 +150,36 @@ func MatchTags(n *Node, bound []string) error {
 		if !slices.Contains(n.Tags, tag) {
 			return ErrTagMismatch
 		}
+	}
+
+	return nil
+}
+
+// MatchCapabilities returns ErrCapabilityMismatch unless the node holds
+// every bound capability. Unlike tags, binding none is no condition at all:
+// a role always binds tags, and capabilities only narrow it further.
+func MatchCapabilities(n *Node, bound []string) error {
+	for _, capability := range bound {
+		if !slices.Contains(n.Capabilities, capability) {
+			return ErrCapabilityMismatch
+		}
+	}
+
+	return nil
+}
+
+// CheckCapabilityName reports why name is not an app capability name.
+// Tailscale wants a domain the capability's owner controls, then a path,
+// as in example.com/cap/openbao-api.
+func CheckCapabilityName(name string) error {
+	if strings.ContainsFunc(name, unicode.IsSpace) {
+		return errCapabilitySpace
+	}
+
+	domain, path, found := strings.Cut(name, "/")
+	if !found || path == "" || !strings.Contains(domain, ".") ||
+		strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") {
+		return errCapabilityForm
 	}
 
 	return nil

@@ -115,6 +115,55 @@ func TestRoleDedupesTags(t *testing.T) {
 	}
 }
 
+func TestRoleCapabilities(t *testing.T) {
+	t.Parallel()
+
+	b, s := testBackend(t, nil)
+	writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-api"}})
+
+	resp := request(t, b, s, logical.ReadOperation, "role/api", nil)
+	if got := resp.Data["bound_capabilities"].([]string); len(got) != 0 {
+		t.Errorf("bound_capabilities of a role that names none = %v", got)
+	}
+
+	writeRole(t, b, s, "api", map[string]any{"bound_capabilities": []string{
+		"example.com/cap/openbao-api", "example.com/cap/openbao-api", "example.com/cap/metrics",
+	}})
+
+	resp = request(t, b, s, logical.ReadOperation, "role/api", nil)
+	want := []string{"example.com/cap/openbao-api", "example.com/cap/metrics"}
+	if !slices.Equal(resp.Data["bound_capabilities"].([]string), want) {
+		t.Errorf("bound_capabilities = %v, want %v", resp.Data["bound_capabilities"], want)
+	}
+
+	writeRole(t, b, s, "api", map[string]any{"bound_capabilities": []string{}})
+
+	resp = request(t, b, s, logical.ReadOperation, "role/api", nil)
+	if got := resp.Data["bound_capabilities"].([]string); len(got) != 0 {
+		t.Errorf("bound_capabilities after clearing = %v", got)
+	}
+}
+
+func TestRoleRejectsNonCapability(t *testing.T) {
+	t.Parallel()
+
+	b, s := testBackend(t, nil)
+
+	for _, capability := range []string{"openbao-api", "example.com", "tag:example-api"} {
+		resp := writeRole(t, b, s, "api", map[string]any{
+			"bound_tags":         []string{"tag:example-api"},
+			"bound_capabilities": []string{"example.com/cap/ok", capability},
+		})
+		if !resp.IsError() || !strings.Contains(resp.Error().Error(), capability) {
+			t.Errorf(
+				"bound_capabilities entry %q: response = %v, want an error naming it",
+				capability,
+				resp,
+			)
+		}
+	}
+}
+
 // Guards: G2
 func TestRoleIgnoresBoundCIDRs(t *testing.T) {
 	t.Parallel()

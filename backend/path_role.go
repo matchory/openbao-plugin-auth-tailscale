@@ -9,6 +9,7 @@ import (
 	"github.com/openbao/openbao/sdk/v2/helper/tokenutil"
 	"github.com/openbao/openbao/sdk/v2/logical"
 
+	"github.com/matchory/openbao-plugin-auth-tailscale/identity"
 	"github.com/matchory/openbao-plugin-auth-tailscale/tailscaled"
 )
 
@@ -19,6 +20,10 @@ type roleEntry struct {
 
 	// BoundTags are the tags a node must carry, all of them.
 	BoundTags []string `json:"bound_tags"`
+
+	// BoundCapabilities are the app capabilities the tailnet policy must
+	// grant a node, all of them. None means no condition beyond the tags.
+	BoundCapabilities []string `json:"bound_capabilities,omitempty"`
 }
 
 // tokenFields are the token settings a role may carry: what a write accepts
@@ -39,6 +44,11 @@ func (b *backend) rolePaths() []*framework.Path {
 		"bound_tags": {
 			Type:        framework.TypeCommaStringSlice,
 			Description: "Tailscale tags a node must carry to log in with this role. It must carry all of them.",
+		},
+		"bound_capabilities": {
+			Type: framework.TypeCommaStringSlice,
+			Description: "App capabilities the tailnet policy must grant a node towards the OpenBao " +
+				"nodes to log in with this role. It must hold all of them. Optional.",
 		},
 	}
 	tokenutil.AddTokenFieldsWithAllowList(fields, tokenFields)
@@ -139,7 +149,13 @@ func (b *backend) readRole(ctx context.Context, req *logical.Request, d *framewo
 	all := map[string]any{}
 	role.PopulateTokenData(all)
 
-	data := map[string]any{"bound_tags": role.BoundTags}
+	// A role stored before it named capabilities reads as naming none.
+	capabilities := role.BoundCapabilities
+	if capabilities == nil {
+		capabilities = []string{}
+	}
+
+	data := map[string]any{"bound_tags": role.BoundTags, "bound_capabilities": capabilities}
 	for _, field := range tokenFields {
 		data[field] = all[field]
 	}
@@ -175,6 +191,17 @@ func (b *backend) writeRole(ctx context.Context, req *logical.Request, d *framew
 	for _, tag := range role.BoundTags {
 		if err := tailscaled.CheckTag(tag); err != nil {
 			return logical.ErrorResponse("bound_tags: %q: %s", tag, err), nil
+		}
+	}
+
+	if raw, ok := d.GetOk("bound_capabilities"); ok {
+		capabilities, _ := raw.([]string)
+		role.BoundCapabilities = dedupe(capabilities)
+	}
+
+	for _, capability := range role.BoundCapabilities {
+		if err := identity.CheckCapabilityName(capability); err != nil {
+			return logical.ErrorResponse("bound_capabilities: %q: %s", capability, err), nil
 		}
 	}
 

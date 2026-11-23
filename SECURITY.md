@@ -51,7 +51,7 @@ another node, a token issued for it keeps working from that address until a
 renewal is refused (G5) or the token's TTL ends. The TTL is the longest that
 window can be.
 
-### G3: A node gets a role only if it carries every tag the role binds
+### G3: A node gets a role only if it carries every tag and holds every capability the role binds
 
 Attackers: any other node on the tailnet; a local process on an OpenBao host.
 Assumes: E3, E5, E6, E7.
@@ -81,6 +81,11 @@ doesn't let use it, as headscale does; the second still names it. A node
 that forwards traffic without advertising a route, through NAT for example,
 looks like any other node: E6 is what keeps such a node out of a role.
 
+A role can also bind app capabilities. The node must then hold every one of
+them, as `tailscaled` on the OpenBao host reports them: granted by the tailnet
+policy from the node to the OpenBao host's own node. A capability narrows a
+role and never widens it, since the node must carry the role's tags as well.
+
 ### G4: Nothing succeeds when tailscaled cannot be asked
 
 Attackers: anyone able to make `tailscaled` slow or unavailable.
@@ -106,9 +111,9 @@ token under the role as it is. A change to a role's other token settings,
 such as its type, its number of uses or `token_no_default_policy`, does not
 end tokens already issued.
 
-These checks run when a token is renewed, not in between. A tag removed from a
-node ends its tokens at their next renewal, or at the end of their TTL if they
-are not renewed.
+These checks run when a token is renewed, not in between. A tag or a
+capability removed from a node ends its tokens at their next renewal, or at
+the end of their TTL if they are not renewed.
 
 Batch tokens are never renewed, so nothing re-checks them. They end with
 their TTL.

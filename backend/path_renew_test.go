@@ -94,6 +94,14 @@ func TestRenewRefusals(t *testing.T) {
 			t.Helper()
 			writeRole(t, b, s, "api", map[string]any{"bound_tags": []string{"tag:example-worker"}})
 		}},
+		{"the role binds a capability the node lacks", func(
+			t *testing.T, b *backend, s logical.Storage, _ *fakeWhoIser, _ *logical.Auth,
+		) {
+			t.Helper()
+			writeRole(t, b, s, "api", map[string]any{
+				"bound_capabilities": []string{"example.com/cap/openbao-api"},
+			})
+		}},
 		{"the role grants other policies", func(
 			t *testing.T, b *backend, s logical.Storage, _ *fakeWhoIser, _ *logical.Auth,
 		) {
@@ -129,6 +137,28 @@ func TestRenewRefusals(t *testing.T) {
 			assertRefused(t, resp, err)
 		})
 	}
+}
+
+// Guards: G5
+func TestRenewRefusedWhenTheNodeLostACapability(t *testing.T) {
+	t.Parallel()
+
+	b, s, who := loginBackend(t)
+	who.node.Capabilities = []string{"example.com/cap/openbao-api"}
+	writeRole(t, b, s, "api", map[string]any{
+		"bound_capabilities": []string{"example.com/cap/openbao-api"},
+	})
+
+	auth := mustLogin(t, b, s, "100.64.0.5")
+
+	if resp, err := renew(t, b, s, auth, "100.64.0.5"); err != nil || resp == nil {
+		t.Fatalf("renewal while the node holds the capability = %v, %v", resp, err)
+	}
+
+	who.node.Capabilities = nil
+
+	resp, err := renew(t, b, s, auth, "100.64.0.5")
+	assertRefused(t, resp, err)
 }
 
 // The framework answers a renewal that carries no token before the backend
