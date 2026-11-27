@@ -7,11 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 ### Added
 
 - Roles can bind app capabilities (`bound_capabilities`). A node must then
   hold every one of them, granted by the tailnet policy to the OpenBao
   nodes' tag, as well as carry the role's tags. A renewal checks them again.
+- `docs/reference/compatibility.md` says what 1.0 will keep stable.
+
+### Fixed
+
+- The guide to deploying behind `tailscale serve` said a standby forwards a
+  login to the active node. A standby answers it itself, asking its own
+  `tailscaled`, which must therefore run on every OpenBao node. The cluster
+  test now gives each node its own `tailscaled`.
 
 ## [0.1.0] - 2026-11-22
 
