@@ -11,7 +11,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-sockaddr v1.0.7
 	github.com/openbao/openbao/sdk/v2 v2.7.1
-	tailscale.com v1.104.7
+	tailscale.com v1.106.1
 )
 
 require (
